@@ -104,6 +104,18 @@ export class DiffMatchPatch {
     this.matchMaxBits = options.matchMaxBits ?? 32;
   }
 
+  private getDeadline(optDeadline?: number) {
+    if (optDeadline == null) {
+      // Set a deadline by which time the diff must be complete.
+      if (this.diffTimeout <= 0) {
+        return Number.MAX_VALUE;
+      } else {
+        return Date.now() + this.diffTimeout * 1000;
+      }
+    }
+    return optDeadline;
+  }
+
   //#region DIFF FUNCTIONS (public)
   /**
    * Find the differences between two texts. Simplifies the problem by stripping
@@ -125,15 +137,7 @@ export class DiffMatchPatch {
     optChecklines?: boolean,
     optDeadline?: number,
   ): Diff[] {
-    if (optDeadline == null) {
-      // Set a deadline by which time the diff must be complete.
-      if (this.diffTimeout <= 0) {
-        optDeadline = Number.MAX_VALUE;
-      } else {
-        optDeadline = Date.now() + this.diffTimeout * 1000;
-      }
-    }
-    const deadline = optDeadline;
+    const deadline = this.getDeadline(optDeadline);
 
     // Check for null inputs.
     if (text1 == null || text2 == null) {
@@ -262,7 +266,8 @@ export class DiffMatchPatch {
    *
    * @param {Diff[]} diffs Array of diff tuples.
    */
-  public diff_cleanupSemantic(diffs: Diff[]): void {
+  public diff_cleanupSemantic(diffs: Diff[], deadline?: number): void {
+    deadline ??= this.getDeadline();
     let changes = false;
     const equalities = []; // Stack of indices where equalities are found.
     let equalitiesLength = 0; // Keeping our own length var is faster in JS.
@@ -278,7 +283,11 @@ export class DiffMatchPatch {
     // Number of characters that changed after the equality.
     let lengthInsertions2 = 0;
     let lengthDeletions2 = 0;
+    let c = 0;
     while (pointer < diffs.length) {
+      if (c++ % 1024 == 0 && Date.now() > deadline) {
+        break;
+      }
       if (diffs[pointer][0] === DiffOperation.DIFF_EQUAL) {
         // Equality found.
         equalities[equalitiesLength++] = pointer;
@@ -340,7 +349,11 @@ export class DiffMatchPatch {
     //   -> <ins>def</ins>xxx<del>abc</del>
     // Only extract an overlap if it is as big as the edit ahead or behind it.
     pointer = 1;
+    c = 0;
     while (pointer < diffs.length) {
+      if (c++ % 1024 == 0 && Date.now() > deadline) {
+        break;
+      }
       if (
         diffs[pointer - 1][0] === DiffOperation.DIFF_DELETE &&
         diffs[pointer][0] === DiffOperation.DIFF_INSERT
@@ -1063,6 +1076,7 @@ export class DiffMatchPatch {
     optB?: string | Diff[],
     optC?: string | Diff[],
   ): PatchObject[] {
+    const deadline = this.getDeadline();
     let text1: string;
     let diffs: Diff[];
     if (
@@ -1073,9 +1087,9 @@ export class DiffMatchPatch {
       // Method 1: text1, text2
       // Compute diffs from text1 and text2.
       text1 = a;
-      diffs = this.diff_main(text1, optB, true);
+      diffs = this.diff_main(text1, optB, true, deadline);
       if (diffs.length > 2) {
-        this.diff_cleanupSemantic(diffs);
+        this.diff_cleanupSemantic(diffs, deadline);
         this.diff_cleanupEfficiency(diffs);
       }
     } else if (
@@ -1681,7 +1695,6 @@ export class DiffMatchPatch {
     if (checklines && text1.length > 100 && text2.length > 100) {
       return this.diff_lineMode_(text1, text2, deadline);
     }
-
     return this.diff_bisect_(text1, text2, deadline);
   }
 
@@ -1706,13 +1719,12 @@ export class DiffMatchPatch {
     text1 = a.chars1;
     text2 = a.chars2;
     const linearray = a.lineArray;
-
     const diffs = this.diff_main(text1, text2, false, deadline);
 
     // Convert the diff back to original text.
     this.diff_charsToLines(diffs, linearray);
     // Eliminate freak matches (e.g. blank lines)
-    this.diff_cleanupSemantic(diffs);
+    this.diff_cleanupSemantic(diffs, deadline);
 
     // Re-diff any replacement blocks, this time character-by-character.
     // Add a dummy entry at the end.
@@ -1760,6 +1772,7 @@ export class DiffMatchPatch {
       }
       pointer++;
     }
+
     // Remove the dummy entry at the end.
     diffs.pop();
 
@@ -2069,7 +2082,7 @@ export class DiffMatchPatch {
       Math.ceil(longtext.length / 4),
       deadline,
     );
-    if (deadline && Date.now() > deadline) {
+    if (Date.now() > deadline) {
       return null;
     }
     // Check again based on the third quarter.
@@ -2142,10 +2155,9 @@ export class DiffMatchPatch {
     let j = shorttext.indexOf(seed, 0);
     let c = 0;
     while (j !== -1) {
-      if (deadline && c % 512 === 0 && Date.now() > deadline) {
+      if (c++ % 1024 === 0 && Date.now() > deadline) {
         return null;
       }
-      c++;
       const prefixLength = this.diff_commonPrefix(
         longtext.substring(i),
         shorttext.substring(j),

@@ -43,22 +43,23 @@ describe("diff large strings", () => {
   });
 
   it("moving the word 'hello' from the near the end to the front of a long string -- this hangs without using diffTimeout", () => {
-    const n = 1e5;
+    const n = 2e5;
+    const one = "x\n".repeat(n) + "hello" + "xxxx";
+    const two = "hello" + "x\n".repeat(n);
+    const dmp = new DiffMatchPatch({ diffTimeout: 0.5 });
+    const t = Date.now();
+    const p = dmp.diff_main(one, two);
+    expect(Date.now() - t).toBeLessThan(1000);
+  });
+
+  it("bigger example moving the word 'hello' from the near the end to the front of a much longer string", () => {
+    const n = 1e6;
     const one = "x\n".repeat(n) + "hello" + "xxxx";
     const two = "hello" + "x\n".repeat(n);
     const dmp = new DiffMatchPatch({ diffTimeout: 0.5 });
     const t = Date.now();
     const p = dmp.patch_make(one, two);
-    expect(Date.now() - t).toBeLessThan(1000);
-  });
-
-  it.skip("bigger example moving the word 'hello' from the near the end to the front of a much longer string", () => {
-    const n = 1e6;
-    const one = "x\n".repeat(n) + "hello" + "xxxx";
-    const two = "hello" + "x\n".repeat(n);
-    const dmp = new DiffMatchPatch({diffTimeout: 0.5});
-    const t = Date.now();
-    const p = dmp.patch_make(one, two);
-    expect(Date.now() - t).toBeLessThan(1000);
+    // timeout can be exceeded somewhat
+    expect(Date.now() - t).toBeLessThan(2000);
   });
 });
