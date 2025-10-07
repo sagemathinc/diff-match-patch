@@ -1,20 +1,13 @@
-<h1 align="center">diff-match-patch-typescript</h1>
-<p align="center"><b>TypeScript</b> port of <a href="https://github.com/google/diff-match-patch">diff-match-patch</a>.</p>
-<p align="center">
-    <a href="https://github.com/nonoroazoro/diff-match-patch-typescript/blob/master/LICENSE">
-        <img src="https://img.shields.io/npm/l/diff-match-patch-typescript.svg" alt="GitHub License" />
-    </a>
-    <a href="https://www.npmjs.com/package/diff-match-patch-typescript">
-        <img src="https://img.shields.io/npm/dw/diff-match-patch-typescript.svg" alt="NPM Downloads" />
-    </a>
-</p>
+<h1 align="center">diff-match-patch</h1>
+
+Fork of [diff-match-patch-typescript](https://github.com/nonoroazoro/diff-match-patch-typescript), but with concern about being something that can be run in production without hanging computers.
 
 ## Installation
 
 ```bash
-npm i diff-match-patch-typescript
+pnpm i @cocalc/diff-match-patch
 ```
 
 ## Documentation
 
-[Official Repository](https://github.com/google/diff-match-patch).
+[Official Repository](https://github.com/sagemathinc/diff-match-patch).

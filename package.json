@@ -1,58 +1,57 @@
 {
-    "name": "diff-match-patch-typescript",
-    "version": "1.1.2",
-    "description": "TypeScript port of diff-match-patch.",
-    "license": "Apache-2.0",
-    "main": "dist/lib/index.js",
-    "module": "dist/es/index.js",
-    "types": "dist/types/index.d.ts",
-    "author": {
-        "email": "xiaochao.k@gmail.com",
-        "name": "nonoroazoro",
-        "url": "https://github.com/nonoroazoro"
-    },
-    "repository": {
-        "type": "git",
-        "url": "https://github.com/nonoroazoro/diff-match-patch-typescript"
-    },
-    "keywords": [
-        "diff-match-patch-typescript",
-        "diff-match-patch",
-        "diff",
-        "google-diff-match-patch",
-        "typescript-port",
-        "typescript"
-    ],
-    "scripts": {
-        "clean": "rimraf dist/*",
-        "cleanCov": "rimraf @coverage",
-        "prebuild": "npm run clean && npm run cleanCov",
-        "build": "npm run build:es && npm run build:lib && npm run build:types",
-        "build:es": "tsc --project ./tsconfig.es.json",
-        "build:lib": "tsc --project ./tsconfig.lib.json",
-        "build:types": "tsc --project ./tsconfig.types.json",
-        "lint": "eslint src/**",
-        "test": "jest --config ./scripts/jest/jest.config.js",
-        "test:watch": "jest --config ./scripts/jest/jest.config.js --watch --verbose false",
-        "test:cov": "npm run cleanCov && npm test -- --coverage",
-        "upgradepackages": "./scripts/upgrade_packages.sh"
-    },
-    "devDependencies": {
-        "@types/jest": "^30.0.0",
-        "@types/node": "^24.3.0",
-        "@typescript-eslint/eslint-plugin": "^8.41.0",
-        "@typescript-eslint/parser": "^8.41.0",
-        "eslint": "^9.34.0",
-        "eslint-config-zoro": "^7.1.9",
-        "husky": "^9.1.7",
-        "jest": "^30.0.5",
-        "lint-staged": "^16.1.5",
-        "rimraf": "^6.0.1",
-        "ts-jest": "^29.4.1",
-        "ts-loader": "^9.5.4",
-        "typescript": "^5.9.2"
-    },
-    "files": [
-        "dist"
-    ]
+  "name": "@cocalc/diff-match-patch",
+  "version": "1.1.2",
+  "description": "Diff Match Patch with a Budget",
+  "license": "Apache-2.0",
+  "main": "dist/lib/index.js",
+  "module": "dist/es/index.js",
+  "types": "dist/types/index.d.ts",
+  "author": {
+    "email": "wstein@sagemath.com",
+    "url": "https://github.com/williamstein"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sagemathinc/diff-match-patch"
+  },
+  "keywords": [
+    "diff-match-patch-typescript",
+    "diff-match-patch",
+    "diff",
+    "google-diff-match-patch",
+    "typescript-port",
+    "typescript"
+  ],
+  "scripts": {
+    "clean": "rimraf dist/*",
+    "cleanCov": "rimraf @coverage",
+    "prebuild": "npm run clean && npm run cleanCov",
+    "build": "npm run build:es && npm run build:lib && npm run build:types",
+    "build:es": "tsc --project ./tsconfig.es.json",
+    "build:lib": "tsc --project ./tsconfig.lib.json",
+    "build:types": "tsc --project ./tsconfig.types.json",
+    "lint": "eslint src/**",
+    "test": "jest --config ./scripts/jest/jest.config.js",
+    "test:watch": "jest --config ./scripts/jest/jest.config.js --watch --verbose false",
+    "test:cov": "npm run cleanCov && npm test -- --coverage",
+    "upgradepackages": "./scripts/upgrade_packages.sh"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^24.7.0",
+    "@typescript-eslint/eslint-plugin": "^8.46.0",
+    "@typescript-eslint/parser": "^8.46.0",
+    "eslint": "^9.37.0",
+    "eslint-config-zoro": "^7.1.16",
+    "husky": "^9.1.7",
+    "jest": "^30.2.0",
+    "lint-staged": "^16.2.3",
+    "rimraf": "^6.0.1",
+    "ts-jest": "^29.4.4",
+    "ts-loader": "^9.5.4",
+    "typescript": "^5.9.3"
+  },
+  "files": [
+    "dist"
+  ]
 }
