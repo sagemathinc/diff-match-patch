@@ -1643,7 +1643,7 @@ export class DiffMatchPatch {
     }
 
     // Check to see if the problem can be split in two.
-    const hm = this.diff_halfMatch_(text1, text2);
+    const hm = this.diff_halfMatch_(text1, text2, deadline);
     if (hm) {
       // A half-match was found, sort out the return data.
       const text1A = hm[0];
@@ -2027,7 +2027,11 @@ export class DiffMatchPatch {
    * text1, the suffix of text1, the prefix of text2, the suffix of
    * text2 and the common middle. Or null if there was no match.
    */
-  private diff_halfMatch_(text1: string, text2: string): HalfMatchArray | null {
+  private diff_halfMatch_(
+    text1: string,
+    text2: string,
+    deadline: number,
+  ): HalfMatchArray | null {
     if (this.diffTimeout <= 0) {
       // Don't risk returning a non-optimal diff if we have unlimited time.
       return null;
@@ -2043,12 +2047,17 @@ export class DiffMatchPatch {
       longtext,
       shorttext,
       Math.ceil(longtext.length / 4),
+      deadline,
     );
+    if (hm1 == null) {
+      return null;
+    }
     // Check again based on the third quarter.
     const hm2 = this.diff_halfMatchI_(
       longtext,
       shorttext,
       Math.ceil(longtext.length / 2),
+      deadline,
     );
     let hm: HalfMatchArray | null;
     if (!hm1 && !hm2) {
@@ -2099,6 +2108,7 @@ export class DiffMatchPatch {
     longtext: string,
     shorttext: string,
     i: number,
+    deadline: number,
   ): HalfMatchArray | null {
     // Start with a 1/4 length substring at position i as a seed.
     const seed = longtext.substring(i, i + Math.floor(longtext.length / 4));
@@ -2110,7 +2120,12 @@ export class DiffMatchPatch {
 
     // Initial.
     let j = shorttext.indexOf(seed, 0);
+    let c = 0;
     while (j !== -1) {
+      if (deadline && c % 512 === 0 && Date.now() > deadline) {
+        return null;
+      }
+      c++;
       const prefixLength = this.diff_commonPrefix(
         longtext.substring(i),
         shorttext.substring(j),
