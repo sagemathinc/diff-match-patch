@@ -184,7 +184,7 @@ export class DiffMatchPatch {
     if (commonsuffix) {
       diffs.push([DiffOperation.DIFF_EQUAL, commonsuffix]);
     }
-    this.diff_cleanupMerge(diffs);
+    this.diff_cleanupMerge(diffs, deadline);
     return diffs;
   }
 
@@ -267,7 +267,7 @@ export class DiffMatchPatch {
    * @param {Diff[]} diffs Array of diff tuples.
    */
   public diff_cleanupSemantic(diffs: Diff[], deadline?: number): void {
-    deadline ??= this.getDeadline();
+    deadline ??= this.getDeadline(deadline);
     let changes = false;
     const equalities = []; // Stack of indices where equalities are found.
     let equalitiesLength = 0; // Keeping our own length var is faster in JS.
@@ -285,7 +285,7 @@ export class DiffMatchPatch {
     let lengthDeletions2 = 0;
     let c = 0;
     while (pointer < diffs.length) {
-      if (c++ % 1024 == 0 && Date.now() > deadline) {
+      if (c++ % 256 == 0 && Date.now() > deadline) {
         break;
       }
       if (diffs[pointer][0] === DiffOperation.DIFF_EQUAL) {
@@ -338,9 +338,9 @@ export class DiffMatchPatch {
 
     // Normalize the diff.
     if (changes) {
-      this.diff_cleanupMerge(diffs);
+      this.diff_cleanupMerge(diffs, deadline);
     }
-    this.diff_cleanupSemanticLossless(diffs);
+    this.diff_cleanupSemanticLossless(diffs, deadline);
 
     // Find any overlaps between deletions and insertions.
     // e.g: <del>abcxxx</del><ins>xxxdef</ins>
@@ -351,7 +351,7 @@ export class DiffMatchPatch {
     pointer = 1;
     c = 0;
     while (pointer < diffs.length) {
-      if (c++ % 1024 == 0 && Date.now() > deadline) {
+      if (c++ % 256 == 0 && Date.now() > deadline) {
         break;
       }
       if (
@@ -413,10 +413,15 @@ export class DiffMatchPatch {
    *
    * @param {Diff[]} diffs Array of diff tuples.
    */
-  public diff_cleanupSemanticLossless(diffs: Diff[]): void {
+  public diff_cleanupSemanticLossless(diffs: Diff[], deadline?: number): void {
+    deadline ??= this.getDeadline(deadline);
     let pointer = 1;
+    let c = 0;
     // Intentionally ignore the first and last element (don't need checking).
     while (pointer < diffs.length - 1) {
+      if (c++ % 256 == 0 && Date.now() > deadline) {
+        break;
+      }
       if (
         diffs[pointer - 1][0] === DiffOperation.DIFF_EQUAL &&
         diffs[pointer + 1][0] === DiffOperation.DIFF_EQUAL
@@ -484,7 +489,8 @@ export class DiffMatchPatch {
    *
    * @param {Diff[]} diffs Array of diff tuples.
    */
-  public diff_cleanupEfficiency(diffs: Diff[]): void {
+  public diff_cleanupEfficiency(diffs: Diff[], deadline?: number): void {
+    deadline ??= this.getDeadline(deadline);
     let changes = false;
     const equalities = []; // Stack of indices where equalities are found.
     let equalitiesLength = 0; // Keeping our own length var is faster in JS.
@@ -504,7 +510,11 @@ export class DiffMatchPatch {
 
     // Is there a deletion operation after the last equality.
     let postDel = false;
+    let c = 0;
     while (pointer < diffs.length) {
+      if (c++ % 256 == 0 && Date.now() > deadline) {
+        break;
+      }
       if (diffs[pointer][0] === DiffOperation.DIFF_EQUAL) {
         // Equality found.
         if (
@@ -574,7 +584,7 @@ export class DiffMatchPatch {
     }
 
     if (changes) {
-      this.diff_cleanupMerge(diffs);
+      this.diff_cleanupMerge(diffs, deadline);
     }
   }
 
@@ -584,7 +594,8 @@ export class DiffMatchPatch {
    *
    * @param {Diff[]} diffs Array of diff tuples.
    */
-  public diff_cleanupMerge(diffs: Diff[]): void {
+  public diff_cleanupMerge(diffs: Diff[], deadline?: number): void {
+    deadline ??= this.getDeadline(deadline);
     // Add a dummy entry at the end.
     diffs.push([DiffOperation.DIFF_EQUAL, ""]);
 
@@ -594,7 +605,11 @@ export class DiffMatchPatch {
     let textDelete = "";
     let textInsert = "";
     let commonlength: number;
+    let c = 0;
     while (pointer < diffs.length) {
+      if (c++ % 256 == 0 && Date.now() > deadline) {
+        break;
+      }
       switch (diffs[pointer][0]) {
         case DiffOperation.DIFF_INSERT:
           countInsert++;
@@ -1075,8 +1090,9 @@ export class DiffMatchPatch {
     a: string | Diff[],
     optB?: string | Diff[],
     optC?: string | Diff[],
+    deadline?: number,
   ): PatchObject[] {
-    const deadline = this.getDeadline();
+    deadline ??= this.getDeadline(deadline);
     let text1: string;
     let diffs: Diff[];
     if (
@@ -1090,7 +1106,7 @@ export class DiffMatchPatch {
       diffs = this.diff_main(text1, optB, true, deadline);
       if (diffs.length > 2) {
         this.diff_cleanupSemantic(diffs, deadline);
-        this.diff_cleanupEfficiency(diffs);
+        this.diff_cleanupEfficiency(diffs, deadline);
       }
     } else if (
       a &&
@@ -1242,11 +1258,16 @@ export class DiffMatchPatch {
    * @returns {PatchApplyArray} Two element Array, containing the
    * new text and an array of boolean values.
    */
-  public patch_apply(patches: PatchObject[], text: string): PatchApplyArray {
+  public patch_apply(
+    patches: PatchObject[],
+    text: string,
+    deadline?: number,
+  ): PatchApplyArray {
     if (patches.length === 0) {
       return [text, []];
     }
 
+    deadline ??= this.getDeadline(deadline);
     // Deep copy the patches so that no changes are made to originals.
     patches = this.patch_deepCopy(patches);
 
@@ -1320,7 +1341,7 @@ export class DiffMatchPatch {
             // The end points match, but the content is unacceptably bad.
             results[x] = false;
           } else {
-            this.diff_cleanupSemanticLossless(diffs);
+            this.diff_cleanupSemanticLossless(diffs, deadline);
             let index1 = 0;
             let index2 = 0;
             for (let y = 0; y < patches[x].diffs.length; y++) {
@@ -2155,7 +2176,7 @@ export class DiffMatchPatch {
     let j = shorttext.indexOf(seed, 0);
     let c = 0;
     while (j !== -1) {
-      if (c++ % 1024 === 0 && Date.now() > deadline) {
+      if (c++ % 256 === 0 && Date.now() > deadline) {
         return null;
       }
       const prefixLength = this.diff_commonPrefix(
