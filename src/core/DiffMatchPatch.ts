@@ -37,6 +37,16 @@ import type { Diff, HalfMatchArray, PatchApplyArray } from "../types";
  * Ported by [xiaochao.k@gmail.com](https://github.com/nonoroazoro)
  */
 
+interface Options {
+  diffTimeout?: number;
+  diffEditCost?: number;
+  matchThreshold?: number;
+  matchDistance?: number;
+  patchDeleteThreshold?: number;
+  patchMargin?: number;
+  matchMaxBits?: number;
+}
+
 /**
  * Class containing the diff, match and patch methods.
  */
@@ -47,24 +57,24 @@ export class DiffMatchPatch {
   /**
    * Number of seconds to map a diff before giving up (0 for infinity).
    */
-  public diffTimeout = 1.0;
+  public diffTimeout;
 
   /**
    * Cost of an empty edit operation in terms of edit characters.
    */
-  public diffEditCost = 4;
+  public diffEditCost;
 
   /**
    * At what point is no match declared (0.0 = perfection, 1.0 = very loose).
    */
-  public matchThreshold = 0.5;
+  public matchThreshold;
 
   /**
    * How far to search for a match (0 = exact location, 1000+ = broad match).
    * A match this many characters away from the expected location will add
    * 1.0 to the score (0.0 is a perfect match).
    */
-  public matchDistance = 1000;
+  public matchDistance;
 
   /**
    * When deleting a large block of text (over ~64 characters), how close do
@@ -72,17 +82,27 @@ export class DiffMatchPatch {
    * 1.0 = very loose). Note that Match_Threshold controls how closely the
    * end points of a delete need to match.
    */
-  public patchDeleteThreshold = 0.5;
+  public patchDeleteThreshold;
 
   /**
    * Chunk size for context length.
    */
-  public patchMargin = 4;
+  public patchMargin;
 
   /**
    * The number of bits in an int.
    */
-  public matchMaxBits = 32;
+  public matchMaxBits;
+
+  constructor(options: Options = {}) {
+    this.diffTimeout = options.diffTimeout ?? 1.0;
+    this.diffEditCost = options.diffEditCost ?? 4;
+    this.matchThreshold = options.matchThreshold ?? 0.5;
+    this.matchDistance = options.matchDistance ?? 1000;
+    this.patchDeleteThreshold = options.patchDeleteThreshold ?? 0.5;
+    this.patchMargin = options.patchMargin ?? 4;
+    this.matchMaxBits = options.matchMaxBits ?? 32;
+  }
 
   //#region DIFF FUNCTIONS (public)
   /**
@@ -105,8 +125,8 @@ export class DiffMatchPatch {
     optChecklines?: boolean,
     optDeadline?: number,
   ): Diff[] {
-    // Set a deadline by which time the diff must be complete.
-    if (typeof optDeadline === "undefined") {
+    if (optDeadline == null) {
+      // Set a deadline by which time the diff must be complete.
       if (this.diffTimeout <= 0) {
         optDeadline = Number.MAX_VALUE;
       } else {
@@ -2049,7 +2069,7 @@ export class DiffMatchPatch {
       Math.ceil(longtext.length / 4),
       deadline,
     );
-    if (hm1 == null) {
+    if (deadline && Date.now() > deadline) {
       return null;
     }
     // Check again based on the third quarter.

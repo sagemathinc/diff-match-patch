@@ -2,7 +2,7 @@ import { DiffMatchPatch } from "../../src/core";
 import { randomBytes } from "node:crypto";
 
 describe("diff large strings", () => {
-  it("a long string compared to its shift", () => {
+  it("a long string compared to its shift works", () => {
     const n = 2e6;
     const shift = 1;
     const one = "x".repeat(n);
@@ -20,8 +20,7 @@ describe("diff large strings", () => {
     const n = 1e6;
     const one = randomBytes(n).toString("hex");
     const two = randomBytes(n).toString("hex");
-    const dmp = new DiffMatchPatch();
-    dmp.diffTimeout = 0.5;
+    const dmp = new DiffMatchPatch({ diffTimeout: 0.5 });
     const t = Date.now();
     const p = dmp.patch_make(one, two);
     expect(Date.now() - t).toBeLessThan(1000);
@@ -37,8 +36,7 @@ describe("diff large strings", () => {
     for (let i = 0; i < n; i++) {
       two += `${Math.random()}\n`;
     }
-    const dmp = new DiffMatchPatch();
-    dmp.diffTimeout = 0.5;
+    const dmp = new DiffMatchPatch({ diffTimeout: 0.5 });
     const t = Date.now();
     const p = dmp.patch_make(one, two);
     expect(Date.now() - t).toBeLessThan(1000);
@@ -48,8 +46,17 @@ describe("diff large strings", () => {
     const n = 1e5;
     const one = "x\n".repeat(n) + "hello" + "xxxx";
     const two = "hello" + "x\n".repeat(n);
-    const dmp = new DiffMatchPatch();
-    dmp.diffTimeout = 0.5;
+    const dmp = new DiffMatchPatch({ diffTimeout: 0.5 });
+    const t = Date.now();
+    const p = dmp.patch_make(one, two);
+    expect(Date.now() - t).toBeLessThan(1000);
+  });
+
+  it.skip("bigger example moving the word 'hello' from the near the end to the front of a much longer string", () => {
+    const n = 1e6;
+    const one = "x\n".repeat(n) + "hello" + "xxxx";
+    const two = "hello" + "x\n".repeat(n);
+    const dmp = new DiffMatchPatch({diffTimeout: 0.5});
     const t = Date.now();
     const p = dmp.patch_make(one, two);
     expect(Date.now() - t).toBeLessThan(1000);
