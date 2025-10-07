@@ -9,6 +9,7 @@ import { DiffOperation } from "../types";
 import { math } from "../utils";
 import { PatchObject } from "./PatchObject";
 import type { Diff, HalfMatchArray, PatchApplyArray } from "../types";
+import { cleanupSplitSurrogates } from "./surrogate-pairs";
 
 /**
  * Diff Match and Patch
@@ -788,6 +789,7 @@ export class DiffMatchPatch {
    * @returns {string} HTML representation.
    */
   public diff_prettyHtml(diffs: Diff[]): string {
+    diffs = cleanupSplitSurrogates(diffs);
     const html = [];
     const patternAMP = /&/g;
     const patternLT = /</g;
@@ -891,6 +893,7 @@ export class DiffMatchPatch {
    * @returns {string} Delta text.
    */
   public diff_toDelta(diffs: Diff[]): string {
+    diffs = cleanupSplitSurrogates(diffs);
     const text = [];
     for (let x = 0; x < diffs.length; x++) {
       switch (diffs[x][0]) {
@@ -1144,6 +1147,7 @@ export class DiffMatchPatch {
     if (diffs.length === 0) {
       return []; // Get rid of the null case.
     }
+    diffs = cleanupSplitSurrogates(diffs);
     const patches = [];
     let patch = new PatchObject();
     let patchDiffLength = 0; // Keeping our own length var is faster in JS.
