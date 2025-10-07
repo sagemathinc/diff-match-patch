@@ -1,21 +1,57 @@
-import { readFileSync } from "node:fs";
 import { DiffMatchPatch } from "../../src/core";
+import { randomBytes } from "node:crypto";
 
 describe("diff large strings", () => {
-  it.skip("diffs a 2 million character shift", () => {
-    const one = "x".repeat(2e6);
-    const two = "a" + one.slice(0, -1);
+  it("a long string compared to its shift", () => {
+    const n = 2e6;
+    const shift = 1;
+    const one = "x".repeat(n);
+    const two = "a".repeat(shift) + "x".repeat(n - shift);
     const dmp = new DiffMatchPatch();
-    dmp.diffTimeout = 0.5;
-    const p = dmp.diff_main(one, two);
+    const p = dmp.patch_make(one, two);
+    expect(p[0].diffs).toEqual([
+      [-1, "x".repeat(shift)],
+      [1, "a".repeat(shift)],
+      [0, "xxxxxxxxxxxxxxxxxxxxxxxxxxxx"],
+    ]);
   });
 
-  it.skip("loads two largs strings from files and computes their diff, confirming that DiffTimeout works", () => {
-    console.log(require("path").resolve("."));
-    const one = readFileSync("tests/big/1.txt", "utf8");
-    const two = readFileSync("tests/big/2.txt", "utf8");
+  it("two long random strings", () => {
+    const n = 1e6;
+    const one = randomBytes(n).toString("hex");
+    const two = randomBytes(n).toString("hex");
     const dmp = new DiffMatchPatch();
     dmp.diffTimeout = 0.5;
-    const p = dmp.diff_main(one, two);
+    const t = Date.now();
+    const p = dmp.patch_make(one, two);
+    expect(Date.now() - t).toBeLessThan(1000);
+  });
+
+  it("string with over 65K distinct lines", () => {
+    const n = 2e5;
+    let one = "";
+    for (let i = 0; i < n; i++) {
+      one += `${i}\n`;
+    }
+    let two = "";
+    for (let i = 0; i < n; i++) {
+      two += `${Math.random()}\n`;
+    }
+    const dmp = new DiffMatchPatch();
+    dmp.diffTimeout = 0.5;
+    const t = Date.now();
+    const p = dmp.patch_make(one, two);
+    expect(Date.now() - t).toBeLessThan(1000);
+  });
+
+  it("moving the word 'hello' from the near the end to the front of a long string -- this hangs without using diffTimeout", () => {
+    const n = 1e5;
+    const one = "x\n".repeat(n) + "hello" + "xxxx";
+    const two = "hello" + "x\n".repeat(n);
+    const dmp = new DiffMatchPatch();
+    dmp.diffTimeout = 0.5;
+    const t = Date.now();
+    const p = dmp.patch_make(one, two);
+    expect(Date.now() - t).toBeLessThan(1000);
   });
 });
