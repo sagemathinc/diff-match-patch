@@ -1,10 +1,10 @@
 {
-    "extends": "./tsconfig.json",
-    "compilerOptions": {
-        "module": "ESNext",
-        "emitDeclarationOnly": true,
-        "declaration": true,
-        "declarationDir": "dist/types",
-        "removeComments": false
-    }
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "emitDeclarationOnly": true,
+    "declaration": true,
+    "declarationDir": "dist/types",
+    "removeComments": false
+  }
 }

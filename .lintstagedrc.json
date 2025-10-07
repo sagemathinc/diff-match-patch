@@ -1,6 +1,3 @@
 {
-    "{packages,scripts,src,tests}/**/*.{js,jsx,ts,tsx}": [
-        "eslint",
-        "git add"
-    ]
+  "{packages,scripts,src,tests}/**/*.{js,jsx,ts,tsx}": ["eslint", "git add"]
 }

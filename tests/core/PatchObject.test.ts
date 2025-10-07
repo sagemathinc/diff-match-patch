@@ -21,26 +21,26 @@
 import { PatchObject } from "../../src/core";
 import { DiffOperation } from "../../src/types";
 
-describe("diff-match-patch-ts - core/PatchObject", () =>
-{
-    it("PatchObject", () =>
-    {
-        // Patch Object.
-        const p = new PatchObject();
-        p.start1 = 20;
-        p.start2 = 21;
-        p.length1 = 18;
-        p.length2 = 17;
-        p.diffs = [
-            [DiffOperation.DIFF_EQUAL, "jump"],
-            [DiffOperation.DIFF_DELETE, "s"],
-            [DiffOperation.DIFF_INSERT, "ed"],
-            [DiffOperation.DIFF_EQUAL, " over "],
-            [DiffOperation.DIFF_DELETE, "the"],
-            [DiffOperation.DIFF_INSERT, "a"],
-            [DiffOperation.DIFF_EQUAL, "\nlaz"]
-        ];
-        const strp = p.toString();
-        expect("@@ -21,18 +22,17 @@\n jump\n-s\n+ed\n  over \n-the\n+a\n %0Alaz\n").toEqual(strp);
-    });
+describe("diff-match-patch-ts - core/PatchObject", () => {
+  it("PatchObject", () => {
+    // Patch Object.
+    const p = new PatchObject();
+    p.start1 = 20;
+    p.start2 = 21;
+    p.length1 = 18;
+    p.length2 = 17;
+    p.diffs = [
+      [DiffOperation.DIFF_EQUAL, "jump"],
+      [DiffOperation.DIFF_DELETE, "s"],
+      [DiffOperation.DIFF_INSERT, "ed"],
+      [DiffOperation.DIFF_EQUAL, " over "],
+      [DiffOperation.DIFF_DELETE, "the"],
+      [DiffOperation.DIFF_INSERT, "a"],
+      [DiffOperation.DIFF_EQUAL, "\nlaz"],
+    ];
+    const strp = p.toString();
+    expect(
+      "@@ -21,18 +22,17 @@\n jump\n-s\n+ed\n  over \n-the\n+a\n %0Alaz\n",
+    ).toEqual(strp);
+  });
 });
