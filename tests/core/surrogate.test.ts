@@ -3,7 +3,7 @@ Rewrite of the tests from https://github.com/google/diff-match-patch/pull/80
 using jest/typescript.
 */
 import { DiffOperation } from "../../src/types";
-const { DIFF_EQUAL, DIFF_INSERT } = DiffOperation;
+const { DIFF_DELETE, DIFF_EQUAL, DIFF_INSERT } = DiffOperation;
 import { DiffMatchPatch } from "../../src/core";
 
 describe("tests of surrogate pairs (unicode)", () => {
@@ -92,115 +92,122 @@ describe("tests of surrogate pairs (unicode)", () => {
       expect(patchedText).toEqual(newText);
     }
   });
+
+  it("Inserting similar surrogate pair in the middle works", () => {
+    expect(
+      dmp.diff_toDelta([
+        [DIFF_EQUAL, "\ud83c\udd70"],
+        [DIFF_INSERT, "\ud83c\udd70"],
+        [DIFF_EQUAL, "\ud83c\udd71"],
+      ]),
+    ).toEqual(
+      dmp.diff_toDelta(
+        dmp.diff_main(
+          "\ud83c\udd70\ud83c\udd71",
+          "\ud83c\udd70\ud83c\udd70\ud83c\udd71",
+        ),
+      ),
+    );
+  });
+
+  // assuming `dmp` and DIFF_* are in scope
+
+  const expectDeltaEq = (lhsDiff: any, rhsDiff: any) => {
+    // Ensure neither side crashes when converted to delta
+    expect(() => dmp.diff_toDelta(lhsDiff)).not.toThrow();
+    expect(() => dmp.diff_toDelta(rhsDiff)).not.toThrow();
+
+    // And ensure the deltas are identical
+    const left = dmp.diff_toDelta(lhsDiff);
+    const right = dmp.diff_toDelta(rhsDiff);
+    expect(left).toEqual(right);
+  };
+
+  describe("surrogate pair handling and delta equivalence", () => {
+    it("Inserting similar surrogate pair in the middle works", () => {
+      expect(
+        dmp.diff_toDelta([
+          [DIFF_EQUAL, "\ud83c\udd70"],
+          [DIFF_INSERT, "\ud83c\udd70"],
+          [DIFF_EQUAL, "\ud83c\udd71"],
+        ]),
+      ).toEqual(
+        dmp.diff_toDelta(
+          dmp.diff_main(
+            "\ud83c\udd70\ud83c\udd71",
+            "\ud83c\udd70\ud83c\udd70\ud83c\udd71",
+          ),
+        ),
+      );
+    });
+
+    it("Deleting similar surrogate pair at the beginning does not crash and matches delta", () => {
+      expectDeltaEq(
+        [
+          [DIFF_DELETE, "\ud83c\udd71"],
+          [DIFF_EQUAL, "\ud83c\udd70\ud83c\udd71"],
+        ],
+        dmp.diff_main(
+          "\ud83c\udd71\ud83c\udd70\ud83c\udd71",
+          "\ud83c\udd70\ud83c\udd71",
+        ),
+      );
+    });
+
+    it("Deleting similar surrogate pair in the middle does not crash and matches delta", () => {
+      expectDeltaEq(
+        [
+          [DIFF_EQUAL, "\ud83c\udd70"],
+          [DIFF_DELETE, "\ud83c\udd72"],
+          [DIFF_EQUAL, "\ud83c\udd71"],
+        ],
+        dmp.diff_main(
+          "\ud83c\udd70\ud83c\udd72\ud83c\udd71",
+          "\ud83c\udd70\ud83c\udd71",
+        ),
+      );
+    });
+
+    it("Swap surrogate pair (delete A insert B) equals separating halves (EQUAL high, then low halves)", () => {
+      expectDeltaEq(
+        [
+          [DIFF_DELETE, "\ud83c\udd70"],
+          [DIFF_INSERT, "\ud83c\udd71"],
+        ],
+        [
+          [DIFF_EQUAL, "\ud83c"],
+          [DIFF_DELETE, "\udd70"],
+          [DIFF_INSERT, "\udd71"],
+        ],
+      );
+    });
+
+    it("Swap surrogate pair (insert A delete B) equals separating halves (EQUAL high, then low halves)", () => {
+      expectDeltaEq(
+        [
+          [DIFF_INSERT, "\ud83c\udd70"],
+          [DIFF_DELETE, "\ud83c\udd71"],
+        ],
+        [
+          [DIFF_EQUAL, "\ud83c"],
+          [DIFF_INSERT, "\udd70"],
+          [DIFF_DELETE, "\udd71"],
+        ],
+      );
+    });
+
+    it("Empty diff groups are ignored in delta", () => {
+      expectDeltaEq(
+        [
+          [DIFF_EQUAL, "abcdef"],
+          [DIFF_DELETE, ""],
+          [DIFF_INSERT, "ghijk"],
+        ],
+        [
+          [DIFF_EQUAL, "abcdef"],
+          [DIFF_INSERT, "ghijk"],
+        ],
+      );
+    });
+  });
 });
-
-/*
-try {
-  assertEquivalent(
-    dmp.diff_toDelta([
-      [DIFF_EQUAL, "\ud83c\udd70"],
-      [DIFF_INSERT, "\ud83c\udd70"],
-      [DIFF_EQUAL, "\ud83c\udd71"],
-    ]),
-    dmp.diff_toDelta(
-      dmp.diff_main(
-        "\ud83c\udd70\ud83c\udd71",
-        "\ud83c\udd70\ud83c\udd70\ud83c\udd71",
-      ),
-    ),
-  );
-} catch (e) {
-  assertEquals("Inserting similar surrogate pair in the middle", "crashed");
-}
-
-try {
-  assertEquivalent(
-    dmp.diff_toDelta([
-      [DIFF_DELETE, "\ud83c\udd71"],
-      [DIFF_EQUAL, "\ud83c\udd70\ud83c\udd71"],
-    ]),
-    dmp.diff_toDelta(
-      dmp.diff_main(
-        "\ud83c\udd71\ud83c\udd70\ud83c\udd71",
-        "\ud83c\udd70\ud83c\udd71",
-      ),
-    ),
-  );
-} catch (e) {
-  assertEquals("Deleting similar surrogate pair at the beginning", "crashed");
-}
-
-try {
-  assertEquivalent(
-    dmp.diff_toDelta([
-      [DIFF_EQUAL, "\ud83c\udd70"],
-      [DIFF_DELETE, "\ud83c\udd72"],
-      [DIFF_EQUAL, "\ud83c\udd71"],
-    ]),
-    dmp.diff_toDelta(
-      dmp.diff_main(
-        "\ud83c\udd70\ud83c\udd72\ud83c\udd71",
-        "\ud83c\udd70\ud83c\udd71",
-      ),
-    ),
-  );
-} catch (e) {
-  assertEquals("Deleting similar surrogate pair in the middle", "crashed");
-}
-
-try {
-  assertEquivalent(
-    dmp.diff_toDelta([
-      [DIFF_DELETE, "\ud83c\udd70"],
-      [DIFF_INSERT, "\ud83c\udd71"],
-    ]),
-    dmp.diff_toDelta([
-      [DIFF_EQUAL, "\ud83c"],
-      [DIFF_DELETE, "\udd70"],
-      [DIFF_INSERT, "\udd71"],
-    ]),
-  );
-} catch (e) {
-  assertEquals("Swap surrogate pair", "crashed");
-}
-
-try {
-  assertEquivalent(
-    dmp.diff_toDelta([
-      [DIFF_INSERT, "\ud83c\udd70"],
-      [DIFF_DELETE, "\ud83c\udd71"],
-    ]),
-    dmp.diff_toDelta([
-      [DIFF_EQUAL, "\ud83c"],
-      [DIFF_INSERT, "\udd70"],
-      [DIFF_DELETE, "\udd71"],
-    ]),
-  );
-} catch (e) {
-  assertEquals("Swap surrogate pair", "crashed");
-}
-
-// Empty diff groups
-assertEquivalent(
-  dmp.diff_toDelta([
-    [DIFF_EQUAL, "abcdef"],
-    [DIFF_DELETE, ""],
-    [DIFF_INSERT, "ghijk"],
-  ]),
-  dmp.diff_toDelta([
-    [DIFF_EQUAL, "abcdef"],
-    [DIFF_INSERT, "ghijk"],
-  ]),
-);
-
-// Different versions of the library may have created deltas with
-// half of a surrogate pair encoded as if it were valid UTF-8
-try {
-  assertEquivalent(
-    dmp.diff_toDelta(dmp.diff_fromDelta("\ud83c\udd70", "-2\t+%F0%9F%85%B1")),
-    dmp.diff_toDelta(dmp.diff_fromDelta("\ud83c\udd70", "=1\t-1\t+%ED%B5%B1")),
-  );
-} catch (e) {
-  assertEquals("Decode UTF8-encoded surrogate half", "crashed");
-}
-*/
