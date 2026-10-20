@@ -5,6 +5,7 @@ Javascript diff-match-patch, made **suitable for use in production**:
 - **Modern typescript** with unit tests, thanks to [diff-match-patch-typescript](https://github.com/nonoroazoro/diff-match-patch-typescript).
 - Full **unicode support**, thanks to [PR 80](https://github.com/google/diff-match-patch/pull/80/files)
 - I added **full diffTimeout support**, which is only partially implemented elsewhere, and is critical for production use (since otherwise your server or browser can be easily stuck at 100% for minutes). See [big.test.ts](./tests/big/big.test.ts).
+- A **deterministic work budget** (`diffWorkLimit`), in place of the clock: the same inputs give the same diff and patch on any machine, however fast or loaded, and the work of one diff is bounded. Every cutoff `diffTimeout` makes (the bisection, half-matching and the cleanups) counts work instead, shared by the whole diff. Roughly 55,000 units take a millisecond on an AMD EPYC 7B13 core, so `diffWorkLimit: 10_000_000` is about `diffTimeout: 0.2` there. Off by default; without it, results are byte-identical to 1.0.1. See [work-budget.test.ts](./tests/core/work-budget.test.ts).
 - **Modern api** for creating dmp object (still backward compatible).
 
 ## Installation
@@ -15,16 +16,14 @@ pnpm i @cocalc/diff-match-patch
 
 ```ts
 import { DiffMatchPatch } from "@cocalc/diff-match-patch";
-const dmp = new DiffMatchPatch({ diffTimeout:0.5 });
+const dmp = new DiffMatchPatch({ diffTimeout: 0.5 });
 const patch = dmp.patch_make("ello", "hello world");
 console.log(JSON.stringify(patch));
 // [{"diffs":[[1,"h"],[0,"ello"],[1," world"]],"start1":0,"start2":0,"length1":4,"length2":11}]
 dmp.patch_apply(patch, "ello");
 // [ 'hello world', [ true ] ]
-
 ```
 
 ## Documentation
 
 [Official Repository](https://github.com/sagemathinc/diff-match-patch).
-

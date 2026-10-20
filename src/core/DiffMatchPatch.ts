@@ -38,8 +38,26 @@ import { cleanupSplitSurrogates } from "./surrogate-pairs";
  * Ported by [xiaochao.k@gmail.com](https://github.com/nonoroazoro)
  */
 
+/**
+ * A diff's work budget, when the diff is bounded by work (diffWorkLimit)
+ * instead of time: every cutoff that would read the clock charges and checks
+ * this instead, so the same inputs give the same diff on any machine, however
+ * fast or loaded. One budget is shared by all the recursive calls of one
+ * diff_main or patch_make.
+ */
+export class DiffWorkBudget {
+  constructor(public left: number) {}
+}
+
+/**
+ * When a diff must stop: a time (milliseconds since the epoch) or a work
+ * budget.
+ */
+export type Deadline = number | DiffWorkBudget;
+
 interface Options {
   diffTimeout?: number;
+  diffWorkLimit?: number;
   diffEditCost?: number;
   matchThreshold?: number;
   matchDistance?: number;
@@ -59,6 +77,14 @@ export class DiffMatchPatch {
    * Number of seconds to map a diff before giving up (0 for infinity).
    */
   public diffTimeout;
+
+  /**
+   * Units of work to map a diff before giving up (0 to use diffTimeout).
+   * When set, it replaces diffTimeout: the cutoff counts work (the diagonals
+   * and matching characters the bisection visits, and the items cleanups and
+   * half-matching visit) instead of reading the clock, so it is deterministic.
+   */
+  public diffWorkLimit;
 
   /**
    * Cost of an empty edit operation in terms of edit characters.
@@ -97,6 +123,7 @@ export class DiffMatchPatch {
 
   constructor(options: Options = {}) {
     this.diffTimeout = options.diffTimeout ?? 1.0;
+    this.diffWorkLimit = options.diffWorkLimit ?? 0;
     this.diffEditCost = options.diffEditCost ?? 4;
     this.matchThreshold = options.matchThreshold ?? 0.5;
     this.matchDistance = options.matchDistance ?? 1000;
@@ -105,8 +132,11 @@ export class DiffMatchPatch {
     this.matchMaxBits = options.matchMaxBits ?? 32;
   }
 
-  private getDeadline(optDeadline?: number) {
+  private getDeadline(optDeadline?: Deadline): Deadline {
     if (optDeadline == null) {
+      if (this.diffWorkLimit > 0) {
+        return new DiffWorkBudget(this.diffWorkLimit);
+      }
       // Set a deadline by which time the diff must be complete.
       if (this.diffTimeout <= 0) {
         return Number.MAX_VALUE;
@@ -115,6 +145,26 @@ export class DiffMatchPatch {
       }
     }
     return optDeadline;
+  }
+
+  // Charge work to a work budget (a time deadline counts nothing).
+  private charge(deadline: Deadline, work: number): void {
+    if (deadline instanceof DiffWorkBudget) {
+      deadline.left -= work;
+    }
+  }
+
+  // Charge work, then whether the diff must stop.
+  private spend(deadline: Deadline, work: number): boolean {
+    this.charge(deadline, work);
+    return this.expired(deadline);
+  }
+
+  // Whether the diff must stop: past its time, or out of work.
+  private expired(deadline: Deadline): boolean {
+    return deadline instanceof DiffWorkBudget
+      ? deadline.left < 0
+      : Date.now() > deadline;
   }
 
   //#region DIFF FUNCTIONS (public)
@@ -136,7 +186,7 @@ export class DiffMatchPatch {
     text1: string,
     text2: string,
     optChecklines?: boolean,
-    optDeadline?: number,
+    optDeadline?: Deadline,
   ): Diff[] {
     const deadline = this.getDeadline(optDeadline);
 
@@ -267,7 +317,7 @@ export class DiffMatchPatch {
    *
    * @param {Diff[]} diffs Array of diff tuples.
    */
-  public diff_cleanupSemantic(diffs: Diff[], deadline?: number): void {
+  public diff_cleanupSemantic(diffs: Diff[], deadline?: Deadline): void {
     deadline ??= this.getDeadline(deadline);
     let changes = false;
     const equalities = []; // Stack of indices where equalities are found.
@@ -286,7 +336,7 @@ export class DiffMatchPatch {
     let lengthDeletions2 = 0;
     let c = 0;
     while (pointer < diffs.length) {
-      if (c++ % 256 == 0 && Date.now() > deadline) {
+      if (c++ % 256 == 0 && this.spend(deadline, 256)) {
         break;
       }
       if (diffs[pointer][0] === DiffOperation.DIFF_EQUAL) {
@@ -352,7 +402,7 @@ export class DiffMatchPatch {
     pointer = 1;
     c = 0;
     while (pointer < diffs.length) {
-      if (c++ % 256 == 0 && Date.now() > deadline) {
+      if (c++ % 256 == 0 && this.spend(deadline, 256)) {
         break;
       }
       if (
@@ -414,13 +464,16 @@ export class DiffMatchPatch {
    *
    * @param {Diff[]} diffs Array of diff tuples.
    */
-  public diff_cleanupSemanticLossless(diffs: Diff[], deadline?: number): void {
+  public diff_cleanupSemanticLossless(
+    diffs: Diff[],
+    deadline?: Deadline,
+  ): void {
     deadline ??= this.getDeadline(deadline);
     let pointer = 1;
     let c = 0;
     // Intentionally ignore the first and last element (don't need checking).
     while (pointer < diffs.length - 1) {
-      if (c++ % 256 == 0 && Date.now() > deadline) {
+      if (c++ % 256 == 0 && this.spend(deadline, 256)) {
         break;
       }
       if (
@@ -490,7 +543,7 @@ export class DiffMatchPatch {
    *
    * @param {Diff[]} diffs Array of diff tuples.
    */
-  public diff_cleanupEfficiency(diffs: Diff[], deadline?: number): void {
+  public diff_cleanupEfficiency(diffs: Diff[], deadline?: Deadline): void {
     deadline ??= this.getDeadline(deadline);
     let changes = false;
     const equalities = []; // Stack of indices where equalities are found.
@@ -513,7 +566,7 @@ export class DiffMatchPatch {
     let postDel = false;
     let c = 0;
     while (pointer < diffs.length) {
-      if (c++ % 256 == 0 && Date.now() > deadline) {
+      if (c++ % 256 == 0 && this.spend(deadline, 256)) {
         break;
       }
       if (diffs[pointer][0] === DiffOperation.DIFF_EQUAL) {
@@ -595,7 +648,7 @@ export class DiffMatchPatch {
    *
    * @param {Diff[]} diffs Array of diff tuples.
    */
-  public diff_cleanupMerge(diffs: Diff[], deadline?: number): void {
+  public diff_cleanupMerge(diffs: Diff[], deadline?: Deadline): void {
     deadline ??= this.getDeadline(deadline);
     // Add a dummy entry at the end.
     diffs.push([DiffOperation.DIFF_EQUAL, ""]);
@@ -608,7 +661,7 @@ export class DiffMatchPatch {
     let commonlength: number;
     let c = 0;
     while (pointer < diffs.length) {
-      if (c++ % 256 == 0 && Date.now() > deadline) {
+      if (c++ % 256 == 0 && this.spend(deadline, 256)) {
         break;
       }
       switch (diffs[pointer][0]) {
@@ -1093,7 +1146,7 @@ export class DiffMatchPatch {
     a: string | Diff[],
     optB?: string | Diff[],
     optC?: string | Diff[],
-    deadline?: number,
+    deadline?: Deadline,
   ): PatchObject[] {
     deadline ??= this.getDeadline(deadline);
     let text1: string;
@@ -1265,7 +1318,7 @@ export class DiffMatchPatch {
   public patch_apply(
     patches: PatchObject[],
     text: string,
-    deadline?: number,
+    deadline?: Deadline,
   ): PatchApplyArray {
     if (patches.length === 0) {
       return [text, []];
@@ -1660,7 +1713,7 @@ export class DiffMatchPatch {
     text1: string,
     text2: string,
     checklines: boolean,
-    deadline: number,
+    deadline: Deadline,
   ): Diff[] {
     let diffs: Diff[];
 
@@ -1737,7 +1790,7 @@ export class DiffMatchPatch {
   private diff_lineMode_(
     text1: string,
     text2: string,
-    deadline: number,
+    deadline: Deadline,
   ): Diff[] {
     // Scan the text on a line-by-line basis first.
     const a = this.diff_linesToChars(text1, text2);
@@ -1815,7 +1868,11 @@ export class DiffMatchPatch {
    * @param {number} deadline Time at which to bail if not yet complete.
    * @returns {Diff[]} Array of diff tuples.
    */
-  private diff_bisect_(text1: string, text2: string, deadline: number): Diff[] {
+  private diff_bisect_(
+    text1: string,
+    text2: string,
+    deadline: Deadline,
+  ): Diff[] {
     // Cache the text lengths to prevent multiple calls.
     const text1Length = text1.length;
     const text2Length = text2.length;
@@ -1842,9 +1899,14 @@ export class DiffMatchPatch {
     let k1End = 0;
     let k2Start = 0;
     let k2End = 0;
+    // Work since the last charge: each diagonal visited, and each matching
+    // character followed along it.
+    let work = 0;
     for (let d = 0; d < maxD; d++) {
       // Bail out if deadline is reached.
-      if (Date.now() > deadline) {
+      this.charge(deadline, work);
+      work = 0;
+      if (this.expired(deadline)) {
         break;
       }
 
@@ -1859,6 +1921,7 @@ export class DiffMatchPatch {
         }
 
         let y1 = x1 - k1;
+        const x1Start = x1;
         while (
           x1 < text1Length &&
           y1 < text2Length &&
@@ -1867,6 +1930,7 @@ export class DiffMatchPatch {
           x1++;
           y1++;
         }
+        work += 1 + x1 - x1Start;
         v1[k1Offset] = x1;
         if (x1 > text1Length) {
           // Ran off the right of the graph.
@@ -1881,6 +1945,7 @@ export class DiffMatchPatch {
             const x2 = text1Length - v2[k2Offset];
             if (x1 >= x2) {
               // Overlap detected.
+              this.charge(deadline, work);
               return this.diff_bisectSplit_(text1, text2, x1, y1, deadline);
             }
           }
@@ -1897,6 +1962,7 @@ export class DiffMatchPatch {
           x2 = v2[k2Offset - 1] + 1;
         }
         let y2 = x2 - k2;
+        const x2Start = x2;
         while (
           x2 < text1Length &&
           y2 < text2Length &&
@@ -1906,6 +1972,7 @@ export class DiffMatchPatch {
           x2++;
           y2++;
         }
+        work += 1 + x2 - x2Start;
         v2[k2Offset] = x2;
         if (x2 > text1Length) {
           // Ran off the left of the graph.
@@ -1922,6 +1989,7 @@ export class DiffMatchPatch {
             x2 = text1Length - x2;
             if (x1 >= x2) {
               // Overlap detected.
+              this.charge(deadline, work);
               return this.diff_bisectSplit_(text1, text2, x1, y1, deadline);
             }
           }
@@ -1953,7 +2021,7 @@ export class DiffMatchPatch {
     text2: string,
     x: number,
     y: number,
-    deadline: number,
+    deadline: Deadline,
   ): Diff[] {
     const text1A = text1.substring(0, x);
     const text2A = text2.substring(0, y);
@@ -2088,9 +2156,9 @@ export class DiffMatchPatch {
   private diff_halfMatch_(
     text1: string,
     text2: string,
-    deadline: number,
+    deadline: Deadline,
   ): HalfMatchArray | null {
-    if (this.diffTimeout <= 0) {
+    if (!(deadline instanceof DiffWorkBudget) && this.diffTimeout <= 0) {
       // Don't risk returning a non-optimal diff if we have unlimited time.
       return null;
     }
@@ -2107,7 +2175,7 @@ export class DiffMatchPatch {
       Math.ceil(longtext.length / 4),
       deadline,
     );
-    if (Date.now() > deadline) {
+    if (this.expired(deadline)) {
       return null;
     }
     // Check again based on the third quarter.
@@ -2166,7 +2234,7 @@ export class DiffMatchPatch {
     longtext: string,
     shorttext: string,
     i: number,
-    deadline: number,
+    deadline: Deadline,
   ): HalfMatchArray | null {
     // Start with a 1/4 length substring at position i as a seed.
     const seed = longtext.substring(i, i + Math.floor(longtext.length / 4));
@@ -2180,7 +2248,7 @@ export class DiffMatchPatch {
     let j = shorttext.indexOf(seed, 0);
     let c = 0;
     while (j !== -1) {
-      if (c++ % 256 === 0 && Date.now() > deadline) {
+      if (c++ % 256 === 0 && this.expired(deadline)) {
         return null;
       }
       const prefixLength = this.diff_commonPrefix(
@@ -2191,6 +2259,7 @@ export class DiffMatchPatch {
         longtext.substring(0, i),
         shorttext.substring(0, j),
       );
+      this.charge(deadline, 1 + seed.length + prefixLength + suffixLength);
       if (bestCommon.length < suffixLength + prefixLength) {
         bestCommon =
           shorttext.substring(j - suffixLength, j) +
