@@ -156,16 +156,19 @@ export class DiffMatchPatch {
   }
 
   /*
-  The work budget (diffWorkLimit, or a DiffWorkBudget passed in). A unit is
-  a character compared or copied, or an array element moved. Every step of
-  diff_main and the cleanups either is paid for ahead with a bound on its
-  work (afford: if the budget can't cover it, the step is skipped, and the
-  diff is the trivial one), or runs only while the budget isn't spent and is
-  charged as it runs (charge, then spent before the next step). So the work
-  done is at most the limit plus one step, and a step is at most
-  BUDGET_STEP_UNITS * (n + 2) units, n the length of the call's texts (for a
-  cleanup, of its diffs): see work-budget.test.ts. With a time deadline,
-  none of this applies: every check is where it always was.
+  The work budget (diffWorkLimit, or a DiffWorkBudget passed in), in units
+  of abstract algorithm steps: they track the characters the algorithm
+  examines and copies and the diffs it moves, not engine-level work
+  (concatenation and flattening, ===, regular expressions, array access,
+  hashing), which isn't metered. Every step of diff_main and the cleanups
+  either is paid for ahead with a bound on its work (afford: if the budget
+  can't cover it, the step is skipped, and the diff is the trivial one), or
+  runs only while the budget isn't spent and is charged as it runs (charge,
+  then spent before the next step). So the units charged are at most the
+  limit plus one step, and a step is at most BUDGET_STEP_UNITS * (n + 2)
+  units, n the length of the call's texts (for a cleanup, of its diffs): see
+  work-budget.test.ts. With a time deadline, none of this applies: every
+  check is where it always was.
   */
 
   // Charge work to a work budget (a time deadline counts nothing).

@@ -102,9 +102,11 @@ function withoutClock<T>(f: () => T): T {
   }
 }
 
-// An operation counter independent of the budget's own accounting: the
-// characters the string primitives touch and the array elements the array
-// primitives move, while f runs.
+// A partial operation meter, independent of the budget's own accounting:
+// the characters some string primitives touch and the elements some array
+// primitives move, while f runs. It doesn't see ===, string concatenation,
+// regular expressions, direct array access, push, pop or for-of, so it
+// corroborates the charging; it doesn't measure total CPU.
 function metered<T>(f: () => T): { result: T; ops: number } {
   let ops = 0;
   const S = String.prototype as any;
@@ -505,4 +507,85 @@ describe("the bound: at most the limit plus one step (daybreak2)", () => {
       expect(ops).toBeLessThanOrEqual(limit + step(n));
     }
   });
+});
+
+describe("each public cleanup on its own: at most the limit plus one step", () => {
+  // Diffs a cleanup has work to do with: many short equalities and edits,
+  // edits that shift onto word boundaries, overlaps, and runs to merge.
+  function diffsFor(seed: number): Diff[] {
+    const random = rng(seed);
+    const diffs: Diff[] = [];
+    for (let i = 0; i < 600; i++) {
+      const s = text(random, 1 + Math.floor(random() * 6), "ab c.");
+      const r = random();
+      diffs.push([
+        r < 0.4
+          ? DiffOperation.DIFF_EQUAL
+          : r < 0.7
+            ? DiffOperation.DIFF_DELETE
+            : DiffOperation.DIFF_INSERT,
+        s,
+      ]);
+    }
+    // An overlap: <del>abcxxx</del><ins>xxxdef</ins>.
+    diffs.push([DiffOperation.DIFF_DELETE, "abc" + "x".repeat(300)]);
+    diffs.push([DiffOperation.DIFF_INSERT, "x".repeat(300) + "def"]);
+    diffs.push([DiffOperation.DIFF_EQUAL, "end"]);
+    return diffs;
+  }
+
+  const cleanups = [
+    "diff_cleanupMerge",
+    "diff_cleanupSemantic",
+    "diff_cleanupSemanticLossless",
+    "diff_cleanupEfficiency",
+  ] as const;
+
+  for (const name of cleanups) {
+    test(`${name}: exact, and charged within the limit plus one step, down to nearly exhausted`, () => {
+      const dmp: any = new DiffMatchPatch();
+      for (const seed of [1, 2, 3]) {
+        const input = diffsFor(seed);
+        const text1 = dmp.diff_text1(input);
+        const text2 = dmp.diff_text2(input);
+        const n = input.reduce((t, [, s]) => t + s.length, 0);
+        // The whole cleanup's cost, then limits from tiny to just below it.
+        const all = new DiffWorkBudget(1e15);
+        dmp[name](copy(input), all);
+        const full = 1e15 - all.left;
+        expect(full).toBeGreaterThan(0);
+        const limits = [
+          1,
+          10,
+          100,
+          n,
+          full / 4,
+          full / 2,
+          full - n,
+          full - 1,
+          full,
+        ];
+        for (const limit of limits.filter((l) => l > 0)) {
+          const diffs = copy(input);
+          const budget = new DiffWorkBudget(limit);
+          const { ops } = metered(() => dmp[name](diffs, budget));
+          // Still the same two texts, however far it got.
+          expect(dmp.diff_text1(diffs)).toBe(text1);
+          expect(dmp.diff_text2(diffs)).toBe(text2);
+          // Charged: the limit, plus at most one step.
+          expect(limit - budget.left).toBeLessThanOrEqual(limit + step(n));
+          // The partial meter corroborates it.
+          expect(ops).toBeLessThanOrEqual(limit + step(n));
+        }
+        // With enough, the same as a generous time limit.
+        const timed = copy(input);
+        new DiffMatchPatch({ diffTimeout: 1e6 })[name](timed);
+        const budgeted = copy(input);
+        dmp[name](budgeted, new DiffWorkBudget(1e15));
+        expect(budgeted).toEqual(timed);
+        // (And it has work to do with these diffs.)
+        expect(timed).not.toEqual(input);
+      }
+    }, 120_000);
+  }
 });
