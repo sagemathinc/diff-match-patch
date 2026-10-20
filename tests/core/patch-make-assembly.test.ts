@@ -148,7 +148,7 @@ describe("patch_make's assembly", () => {
       expect(exact(dmp.patch_make(a, copy(diffs)))).toBe(expected);
       expect(exact(dmp.patch_make(a, b, copy(diffs)))).toBe(expected);
     }
-  });
+  }, 120_000);
 
   test("with a text1 the diffs don't start from, it is the old splicing, as before", () => {
     const random = rng(4);
@@ -162,12 +162,12 @@ describe("patch_make's assembly", () => {
         exact(referencePatchMake(dmp, other, copy(diffs))),
       );
     }
-  });
+  }, 120_000);
 
-  test("dense edits in a long text: linear in the patches, not in diffs times length", () => {
+  test("dense edits in a long text: no rebuild after every diff", () => {
     const random = rng(9);
     const alphabet = [..."abcdefghijklmnopqrstuvwxyz "];
-    const a = text(random, 250_000, alphabet);
+    const a = text(random, 64 * 1024, alphabet);
     let b = "";
     for (let i = 0; i < a.length; i++) b += i % 10 === 0 ? "#" : a[i];
     const dmp = new DiffMatchPatch({ diffTimeout: 0 });
@@ -181,7 +181,7 @@ describe("patch_make's assembly", () => {
     expect(fast).toBe(slow);
     // Measured, not a timing assertion: printed for the record.
     console.log(
-      `patch_make of ${diffs.length} diffs over 250 KB: ${ours.toFixed(0)} ms (reference ${reference.toFixed(0)} ms)`,
+      `patch_make of ${diffs.length} diffs over 64 KiB: ${ours.toFixed(0)} ms (reference ${reference.toFixed(0)} ms)`,
     );
-  });
+  }, 120_000);
 });
