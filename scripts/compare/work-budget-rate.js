@@ -16,7 +16,7 @@ const shapes = {
     return [s, t];
   },
 };
-for (const limit of [1e6, 4e6, 1.6e7]) {
+for (const limit of [4e6, 1.6e7, 6.4e7]) {
   for (const [name, make] of Object.entries(shapes)) {
     const row = [];
     for (const n of [2000, 20000, 100000]) {
