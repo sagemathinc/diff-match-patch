@@ -1158,12 +1158,14 @@ export class DiffMatchPatch {
     // context info.
     let prepatchText = text1;
     let postpatchText = text1;
-    // Rebuilding postpatchText after every diff costs the whole text each
-    // time. When text1 is the text the diffs start from (always, for methods
-    // 1 and 2), it is text2's first charCount2 characters followed by text1
-    // after its first consumed1: so it is never built, and the context is
-    // found in those two parts (patch_addContextParts_), byte for byte as
-    // before.
+    // Rebuilding postpatchText after every one of D diffs costs O(D·N) for
+    // N characters. When text1 is the text the diffs start from (always, for
+    // methods 1 and 2), it is text2's first charCount2 characters followed
+    // by text1 after its first consumed1: so it is never built, and the
+    // context is found in those two parts (patch_addContextParts_), byte for
+    // byte as before. That search is still O(N) for each of K patches
+    // (O(K·N), P2b), so patch_make is not linear overall. With a text1 the
+    // diffs don't start from, the old per-diff rebuild runs, at its old cost.
     const derived = this.diff_text1(diffs) === text1;
     const text2 = derived ? this.diff_text2(diffs) : "";
     let consumed1 = 0;
@@ -2515,9 +2517,11 @@ export class DiffMatchPatch {
   }
 
   /**
-   * patch_addContext_ on the text head + rest, without building it: the same
-   * context, found in the two parts (each a slice of a whole text, which
-   * needs no copying), and at the seam between them.
+   * patch_addContext_ on the text head + rest, without concatenating them:
+   * the same context, found in the two parts (each a substring of a whole
+   * text) and at the seam between them. Its indexOf and lastIndexOf are
+   * still O(N) per patch; and ECMAScript does not promise that a substring
+   * is not copied, so an engine may add O(N) copying per patch boundary.
    *
    * @private
    * @param {PatchObject} patch The patch to grow.
