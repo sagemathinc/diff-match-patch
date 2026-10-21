@@ -1364,6 +1364,20 @@ export class DiffMatchPatch {
     // context info.
     let prepatchText = text1;
     let postpatchText = text1;
+    // Rebuilding postpatchText after every one of D diffs costs O(D·N) for
+    // N characters. When text1 is the text the diffs start from (always, for
+    // methods 1 and 2), it is text2's first charCount2 characters followed
+    // by text1 after its first consumed1: so it is never built, and the
+    // context is found in those two parts (patch_addContextParts_), byte for
+    // byte as before. That search is still O(N) for each of K patches
+    // (O(K·N), P2b), so patch_make is not linear overall. With a text1 the
+    // diffs don't start from, the old per-diff rebuild runs, at its old cost.
+    const derived = this.diff_text1(diffs) === text1;
+    const text2 = derived ? this.diff_text2(diffs) : "";
+    let consumed1 = 0;
+    // The parts of prepatchText, when derived.
+    let preHead = "";
+    let preRest = text1;
     for (let x = 0; x < diffs.length; x++) {
       const diffType = diffs[x][0];
       const diffText = diffs[x][1];
@@ -1378,17 +1392,21 @@ export class DiffMatchPatch {
         case DiffOperation.DIFF_INSERT:
           patch.diffs[patchDiffLength++] = diffs[x];
           patch.length2 += diffText.length;
-          postpatchText =
-            postpatchText.substring(0, charCount2) +
-            diffText +
-            postpatchText.substring(charCount2);
+          if (!derived) {
+            postpatchText =
+              postpatchText.substring(0, charCount2) +
+              diffText +
+              postpatchText.substring(charCount2);
+          }
           break;
         case DiffOperation.DIFF_DELETE:
           patch.length1 += diffText.length;
           patch.diffs[patchDiffLength++] = diffs[x];
-          postpatchText =
-            postpatchText.substring(0, charCount2) +
-            postpatchText.substring(charCount2 + diffText.length);
+          if (!derived) {
+            postpatchText =
+              postpatchText.substring(0, charCount2) +
+              postpatchText.substring(charCount2 + diffText.length);
+          }
           break;
         case DiffOperation.DIFF_EQUAL:
           if (
@@ -1403,7 +1421,11 @@ export class DiffMatchPatch {
           } else if (diffText.length >= 2 * this.patchMargin) {
             // Time for a new patch.
             if (patchDiffLength) {
-              this.patch_addContext_(patch, prepatchText);
+              if (derived) {
+                this.patch_addContextParts_(patch, preHead, preRest);
+              } else {
+                this.patch_addContext_(patch, prepatchText);
+              }
               patches.push(patch);
               patch = new PatchObject();
               patchDiffLength = 0;
@@ -1411,7 +1433,14 @@ export class DiffMatchPatch {
               // https://github.com/google/diff-match-patch/wiki/Unidiff
               // Update prepatch text & pos to reflect the application of the
               // just completed patch.
-              prepatchText = postpatchText;
+              if (derived) {
+                // The text the diffs so far made (this equality is not
+                // counted yet), then the rest of text1.
+                preHead = text2.substring(0, charCount2 + diffText.length);
+                preRest = text1.substring(consumed1 + diffText.length);
+              } else {
+                prepatchText = postpatchText;
+              }
               charCount1 = charCount2;
             }
           }
@@ -1421,6 +1450,7 @@ export class DiffMatchPatch {
       // Update the current character count.
       if (diffType !== DiffOperation.DIFF_INSERT) {
         charCount1 += diffText.length;
+        consumed1 += diffText.length;
       }
       if (diffType !== DiffOperation.DIFF_DELETE) {
         charCount2 += diffText.length;
@@ -1428,7 +1458,11 @@ export class DiffMatchPatch {
     }
     // Pick up the leftover patch if not empty.
     if (patchDiffLength) {
-      this.patch_addContext_(patch, prepatchText);
+      if (derived) {
+        this.patch_addContextParts_(patch, preHead, preRest);
+      } else {
+        this.patch_addContext_(patch, prepatchText);
+      }
       patches.push(patch);
     }
 
@@ -2757,6 +2791,125 @@ export class DiffMatchPatch {
     }
     // Add the suffix.
     const suffix = text.substring(
+      patch.start2 + patch.length1,
+      patch.start2 + patch.length1 + padding,
+    );
+    if (suffix) {
+      patch.diffs.push([DiffOperation.DIFF_EQUAL, suffix]);
+    }
+
+    // Roll back the start points.
+    patch.start1 -= prefix.length;
+    patch.start2 -= prefix.length;
+    // Extend the lengths.
+    patch.length1 += prefix.length + suffix.length;
+    patch.length2 += prefix.length + suffix.length;
+  }
+
+  /**
+   * patch_addContext_ on the text head + rest, without concatenating them:
+   * the same context, found in the two parts (each a substring of a whole
+   * text) and at the seam between them. Its indexOf and lastIndexOf are
+   * still O(N) per patch; and ECMAScript does not promise that a substring
+   * is not copied, so an engine may add O(N) copying per patch boundary.
+   *
+   * @private
+   * @param {PatchObject} patch The patch to grow.
+   * @param {string} head The start of the source text.
+   * @param {string} rest The rest of the source text.
+   */
+  private patch_addContextParts_(
+    patch: PatchObject,
+    head: string,
+    rest: string,
+  ) {
+    const split = head.length;
+    const length = split + rest.length;
+    if (length === 0) {
+      return;
+    }
+    if (patch.start2 == null) {
+      throw Error("patch not initialized");
+    }
+    // String.prototype.substring on head + rest.
+    const substring = (from: number, to: number): string => {
+      let a = Math.min(Math.max(from, 0), length);
+      let b = Math.min(Math.max(to, 0), length);
+      if (a > b) {
+        [a, b] = [b, a];
+      }
+      if (b <= split) {
+        return head.substring(a, b);
+      }
+      if (a >= split) {
+        return rest.substring(a - split, b - split);
+      }
+      return head.substring(a) + rest.substring(0, b - split);
+    };
+    // The characters around the seam an occurrence of a pattern this long
+    // could span, and where they start.
+    const seam = (n: number): [string, number] => {
+      const from = Math.max(0, split - n + 1);
+      return [head.substring(from) + rest.substring(0, n - 1), from];
+    };
+    // String.prototype.indexOf and lastIndexOf on head + rest.
+    const indexOf = (pattern: string): number => {
+      if (pattern.length === 0) {
+        return 0;
+      }
+      const i = head.indexOf(pattern);
+      if (i !== -1) {
+        return i;
+      }
+      const [around, from] = seam(pattern.length);
+      const j = around.indexOf(pattern);
+      if (j !== -1) {
+        return from + j;
+      }
+      const k = rest.indexOf(pattern);
+      return k === -1 ? -1 : split + k;
+    };
+    const lastIndexOf = (pattern: string): number => {
+      if (pattern.length === 0) {
+        return length;
+      }
+      const k = rest.lastIndexOf(pattern);
+      if (k !== -1) {
+        return split + k;
+      }
+      const [around, from] = seam(pattern.length);
+      const j = around.lastIndexOf(pattern);
+      if (j !== -1) {
+        return from + j;
+      }
+      return head.lastIndexOf(pattern);
+    };
+
+    let pattern = substring(patch.start2, patch.start2 + patch.length1);
+    let padding = 0;
+
+    // Look for the first and last matches of pattern in text. If two different
+    // matches are found, increase the pattern length.
+    while (
+      indexOf(pattern) !== lastIndexOf(pattern) &&
+      pattern.length < this.matchMaxBits - this.patchMargin - this.patchMargin
+    ) {
+      padding += this.patchMargin;
+      pattern = substring(
+        patch.start2 - padding,
+        patch.start2 + patch.length1 + padding,
+      );
+    }
+    // Add one chunk for good luck.
+    padding += this.patchMargin;
+
+    // Add the prefix.
+    const prefix = substring(patch.start2 - padding, patch.start2);
+    if (prefix) {
+      patch.diffs.unshift([DiffOperation.DIFF_EQUAL, prefix]);
+    }
+    // Add the suffix.
+    const suffix = substring(
       patch.start2 + patch.length1,
       patch.start2 + patch.length1 + padding,
     );
