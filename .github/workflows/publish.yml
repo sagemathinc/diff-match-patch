@@ -1,0 +1,55 @@
+# Publish @cocalc/diff-match-patch to npm with trusted publishing (OIDC).
+#
+# To release: bump "version" in package.json on master, then push a tag
+# v<version> (for example v1.1.0) that points at that commit.  This workflow
+# checks that the tag matches package.json, tests, builds and publishes.
+# No npm token is stored anywhere; npm trusts this workflow file by name
+# (publish.yml) and adds provenance automatically.
+
+name: Publish to npm
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  id-token: write # required for npm trusted publishing (OIDC)
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      # Trusted publishing needs npm 11.5.1 or later.
+      - run: npm install -g npm@^11.5.1
+      - run: npm --version
+
+      - name: The tag must match package.json's version
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match package.json version ${version}"
+            exit 1
+          fi
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm run build
+
+      - run: npm publish --access public
