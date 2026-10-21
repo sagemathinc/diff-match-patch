@@ -25,7 +25,7 @@
   "scripts": {
     "clean": "rimraf dist/*",
     "cleanCov": "rimraf @coverage",
-    "prebuild": "pnpm run clean && pnpm run cleanCov",
+    "prebuild": "node scripts/check-typescript.js && pnpm run clean && pnpm run cleanCov",
     "build": "pnpm run build:es && pnpm run build:lib && pnpm run build:types",
     "build:es": "tsc --project ./tsconfig.es.json",
     "build:lib": "tsc --project ./tsconfig.lib.json",
@@ -34,7 +34,8 @@
     "test:watch": "jest --config ./scripts/jest/jest.config.js --watch --verbose false",
     "test:cov": "pnpm run cleanCov && pnpm test -- --coverage",
     "upgradepackages": "./scripts/upgrade_packages.sh",
-    "prettier-all": "prettier --write ."
+    "prettier-all": "prettier --write .",
+    "pretest": "node scripts/check-typescript.js"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
