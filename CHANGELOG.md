@@ -1,5 +1,11 @@
 # Changelogs
 
+## @cocalc/diff-match-patch 1.1.0
+
+- Added: `diffWorkLimit`, a deterministic work budget for diffs in place of the wall-clock `diffTimeout`, so the same texts always give the same diff and patch (#1). With no limit set, output is byte-identical to 1.0.1.
+- Changed: `patch_make` assembles patches in linear time, with byte-identical output (#2).
+- Added: releases are published from GitHub Actions with npm trusted publishing (`.github/workflows/publish.yml`).
+
 ## 1.1.2 - August 26, 2025
 
 - Changed: Tweak readme.
