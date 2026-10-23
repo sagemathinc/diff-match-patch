@@ -5,6 +5,7 @@ using jest/typescript.
 import { DiffOperation } from "../../src/types";
 const { DIFF_DELETE, DIFF_EQUAL, DIFF_INSERT } = DiffOperation;
 import { DiffMatchPatch } from "../../src/core";
+import { cleanupSplitSurrogates } from "../../src/core/surrogate-pairs";
 
 describe("tests of surrogate pairs (unicode)", () => {
   const dmp = new DiffMatchPatch();
@@ -210,4 +211,177 @@ describe("tests of surrogate pairs (unicode)", () => {
       );
     });
   });
+});
+
+describe("no edit is lost at a shared surrogate half (astra CORR-DMP-STRIP-1)", () => {
+  const dmp = new DiffMatchPatch();
+  // Make the patch, apply it to a: b, whatever the budget.
+  function roundtrip(a: string, b: string, opts: object, viaText = true) {
+    const d = new DiffMatchPatch(opts);
+    const patches = d.patch_make(a, b);
+    expect(d.patch_apply(patches, a)[0]).toBe(b);
+    if (viaText) {
+      const text = d.patch_toText(patches);
+      expect(d.patch_apply(d.patch_fromText(text), a)[0]).toBe(b);
+    }
+    expect(
+      d.diff_text2(d.diff_fromDelta(a, d.diff_toDelta(d.diff_main(a, b)))),
+    ).toBe(b);
+  }
+  const modes = [
+    {},
+    { diffTimeout: 0 },
+    { diffWorkLimit: 1 },
+    { diffWorkLimit: 25_000_000 },
+  ];
+
+  it("different high surrogates before a shared low surrogate (the old cleanup dropped the edit, in every mode)", () => {
+    for (const opts of modes) {
+      roundtrip("😀", "🨀", opts);
+      roundtrip("🨀", "😀", opts);
+      roundtrip("x😀y", "x🨀y", opts);
+      roundtrip("😀😁", "🨀🨁", opts);
+    }
+  });
+
+  it("the mirror: a shared high surrogate before different low surrogates", () => {
+    for (const opts of modes) {
+      roundtrip("😀", "😁", opts);
+      roundtrip("x😀y", "x😁y", opts);
+    }
+  });
+
+  it("inserts and deletes of a whole pair next to a pair sharing a half", () => {
+    for (const opts of modes) {
+      roundtrip("a😀b", "a🨀😀b", opts);
+      roundtrip("a🨀😀b", "a😀b", opts);
+      roundtrip("😀", "🨀😀", opts);
+      roundtrip("😀", "😀😁", opts);
+    }
+  });
+
+  it("the 25M case: 400,000 p, an emoji changed in its high surrogate, 400,000 s", () => {
+    const a = "p".repeat(400_000) + "😀" + "s".repeat(400_000);
+    const b = "p".repeat(400_000) + "🨀" + "s".repeat(400_000);
+    roundtrip(a, b, { diffWorkLimit: 25_000_000 });
+    const d = new DiffMatchPatch({ diffWorkLimit: 25_000_000 });
+    expect(d.patch_toText(d.patch_make(a, b)).length).toBeLessThan(200);
+  });
+
+  it("random edits of texts of emoji sharing halves: patch_make then patch_apply is b, and the delta is exact", () => {
+    let seed = 5;
+    const random = () =>
+      (seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) / 2 ** 32;
+    const units = ["😀", "🨀", "😁", "🨁", "a", "b"];
+    const text = (n: number) =>
+      Array.from({ length: n }, () => units[Math.floor(random() * units.length)]).join("");
+    for (const opts of modes) {
+      for (let i = 0; i < 1000; i++) {
+        const a = text(Math.floor(random() * 12));
+        const b = text(Math.floor(random() * 12));
+        // patch_toText can still throw where patch_addContext's context
+        // splits a pair (as before this change); the patches themselves
+        // are exact.
+        roundtrip(a, b, opts, false);
+      }
+    }
+  });
+
+  it("cleanupSplitSurrogates leaves its input unchanged", () => {
+    const diffs: [number, string][] = [
+      [DIFF_DELETE, "\ud83d"],
+      [DIFF_INSERT, "\ud83e"],
+      [DIFF_EQUAL, "\ude00"],
+    ];
+    const before = JSON.stringify(diffs);
+    expect(dmp.diff_toDelta(diffs as any)).toBe("-2\t+%F0%9F%A8%80");
+    expect(JSON.stringify(diffs)).toBe(before);
+  });
+});
+
+describe("an empty equality between the halves of a pair (astra CORR-DMP-STRIP-2)", () => {
+  const dmp = new DiffMatchPatch();
+  const H = "\ud83d";
+  const L = "\ude00";
+
+  it("astra's case: INSERT high, EQUAL '', INSERT low is one inserted emoji", () => {
+    expect(
+      dmp.diff_toDelta([
+        [DIFF_INSERT, H],
+        [DIFF_EQUAL, ""],
+        [DIFF_INSERT, L],
+      ]),
+    ).toBe("+%F0%9F%98%80");
+  });
+
+  it("the deletion, and mixed carries, with empty equalities between the halves", () => {
+    expect(
+      dmp.diff_toDelta([
+        [DIFF_DELETE, H],
+        [DIFF_EQUAL, ""],
+        [DIFF_DELETE, L],
+      ]),
+    ).toBe("-2");
+    // Different high surrogates, then the shared low one.
+    expect(
+      dmp.diff_toDelta([
+        [DIFF_DELETE, H],
+        [DIFF_INSERT, "\ud83e"],
+        [DIFF_EQUAL, ""],
+        [DIFF_EQUAL, L],
+      ]),
+    ).toBe("-2\t+%F0%9F%A8%80");
+    // A shared high surrogate, then different low ones.
+    expect(
+      dmp.diff_toDelta([
+        [DIFF_EQUAL, H],
+        [DIFF_EQUAL, ""],
+        [DIFF_DELETE, L],
+        [DIFF_INSERT, "\ude01"],
+      ]),
+    ).toBe("-2\t+%F0%9F%98%81");
+    // Only one text carries, with empty diffs of every kind in between
+    // (edits are not merged: two inserts, each whole).
+    expect(
+      dmp.diff_toDelta([
+        [DIFF_INSERT, "a" + H],
+        [DIFF_DELETE, ""],
+        [DIFF_EQUAL, ""],
+        [DIFF_INSERT, ""],
+        [DIFF_INSERT, L + "b"],
+      ]),
+    ).toBe("+a\t+%F0%9F%98%80b");
+  });
+
+  it("every sequence of up to four diffs: both texts are kept, and a well-formed text gives well-formed diffs", () => {
+    const atoms = ["", "a", "\ud83d", "\ud83e", "\ude00", "\ude01"];
+    const ops = [DIFF_DELETE, DIFF_EQUAL, DIFF_INSERT];
+    const entries: [number, string][] = [];
+    for (const op of ops) for (const t of atoms) entries.push([op, t]);
+    const lone = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
+    const text1 = (ds: [number, string][]) =>
+      ds.filter(([op]) => op !== DIFF_INSERT).map(([, t]) => t).join("");
+    const text2 = (ds: [number, string][]) =>
+      ds.filter(([op]) => op !== DIFF_DELETE).map(([, t]) => t).join("");
+    let checked = 0;
+    const visit = (seq: [number, string][]) => {
+      if (seq.length > 0) {
+        const input = seq.map(([op, t]) => [op, t] as [number, string]);
+        const before = JSON.stringify(input);
+        const out = cleanupSplitSurrogates(input as any) as [number, string][];
+        expect(JSON.stringify(input)).toBe(before);
+        expect(text1(out)).toBe(text1(seq));
+        expect(text2(out)).toBe(text2(seq));
+        expect(out.every(([, t]) => t.length > 0)).toBe(true);
+        if (!lone.test(text1(seq)) && !lone.test(text2(seq))) {
+          for (const [, t] of out) expect(lone.test(t)).toBe(false);
+        }
+        checked++;
+      }
+      if (seq.length === 4) return;
+      for (const e of entries) visit([...seq, e]);
+    };
+    visit([]);
+    expect(checked).toBe(18 + 18 ** 2 + 18 ** 3 + 18 ** 4);
+  }, 120_000);
 });

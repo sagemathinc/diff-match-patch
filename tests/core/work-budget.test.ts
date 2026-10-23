@@ -589,3 +589,61 @@ describe("each public cleanup on its own: at most the limit plus one step", () =
     }, 120_000);
   }
 });
+
+describe("a small edit to a long text stays small under the budget", () => {
+  // patchflow's 0.15 bug: 25M units of diffWorkLimit couldn't pay ahead for
+  // stripping the common prefix and suffix of two texts of 800 KB, so a
+  // one-line edit was the whole text deleted and inserted.
+  function lines(n: number, change = -1): string {
+    return Array.from({ length: n }, (_, i) =>
+      i === change ? "an edited line" : `line ${i} of a long document`,
+    ).join("\n");
+  }
+
+  for (const count of [30_000, 80_000]) {
+    test(`${count} lines, one edited: the diff is the line, under diffWorkLimit 25M`, () => {
+      const a = lines(count);
+      const b = lines(count, Math.floor(count / 2));
+      const n = a.length + b.length;
+      expect(16 * n + 16).toBeGreaterThan(25_000_000);
+      const dmp = new DiffMatchPatch();
+      dmp.diffWorkLimit = 25_000_000;
+      const diffs = dmp.diff_main(a, b);
+      expect(dmp.diff_text1(diffs)).toBe(a);
+      expect(dmp.diff_text2(diffs)).toBe(b);
+      const edited = diffs
+        .filter(([op]) => op !== DiffOperation.DIFF_EQUAL)
+        .reduce((k, [, s]) => k + s.length, 0);
+      expect(edited).toBeLessThan(100);
+      const patch = dmp.patch_toText(dmp.patch_make(a, b));
+      expect(patch.length).toBeLessThan(300);
+      expect(dmp.patch_apply(dmp.patch_fromText(patch), a)[0]).toBe(b);
+    });
+  }
+
+  test("a budget the strip spends: the prefix and suffix, then the trivial diff of the middle, charged within the limit plus one step", () => {
+    const a = "p".repeat(5000) + "abc" + "s".repeat(5000);
+    const b = "p".repeat(5000) + "xyz" + "s".repeat(5000);
+    const n = a.length + b.length;
+    for (const limit of [0, 1, 16 * n, 16 * n + 15]) {
+      const dmp = new DiffMatchPatch();
+      const budget = new DiffWorkBudget(limit);
+      const diffs = dmp.diff_main(a, b, true, budget);
+      expect(diffs).toEqual([
+        [DiffOperation.DIFF_EQUAL, "p".repeat(5000)],
+        [DiffOperation.DIFF_DELETE, "abc"],
+        [DiffOperation.DIFF_INSERT, "xyz"],
+        [DiffOperation.DIFF_EQUAL, "s".repeat(5000)],
+      ]);
+      expect(limit - budget.left).toBeLessThanOrEqual(limit + step(n));
+    }
+    // Already spent: the trivial diff, and nothing more charged.
+    const budget = new DiffWorkBudget(0);
+    budget.left = -1;
+    expect(new DiffMatchPatch().diff_main(a, b, true, budget)).toEqual([
+      [DiffOperation.DIFF_DELETE, a],
+      [DiffOperation.DIFF_INSERT, b],
+    ]);
+    expect(budget.left).toBe(-1);
+  });
+});
