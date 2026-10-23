@@ -19,6 +19,11 @@ import type { Diff, HalfMatchArray, PatchApplyArray } from "../types";
  * patch lost the edit). Empty diffs are removed. Returns a new array; the
  * input is not changed.
  *
+ * Diffs of well-formed text that split no pair come out as they went in
+ * (less empty diffs). A lone high surrogate can change shape: at the end of
+ * the input, DELETE "\ud83d", INSERT "\ud83d" becomes EQUAL "\ud83d". Both
+ * texts are still exact; a lone surrogate is never made serializable.
+ *
  * @param {!Array.<!diff_match_patch.Diff>} diffs Array of diff tuples.
  */
 export function cleanupSplitSurrogates(diffs: Diff[]): Diff[] {
@@ -44,6 +49,10 @@ export function cleanupSplitSurrogates(diffs: Diff[]): Diff[] {
   };
 
   for (const [op, data] of diffs) {
+    // An empty diff is skipped: it splits nothing, and an empty equality
+    // must not end a run before a carry's low surrogate (astra
+    // CORR-DMP-STRIP-2: INSERT "\ud83d", EQUAL "", INSERT "\ude00").
+    if (!data) continue;
     if (op === DiffOperation.DIFF_EQUAL) {
       let text = data;
       if (carry1 !== carry2) {
