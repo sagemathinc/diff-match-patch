@@ -1,47 +1,96 @@
 // Code from https://github.com/google/diff-match-patch/pull/80
 // but converted to typescript, etc.
 
+import { DiffOperation } from "../types";
 import type { Diff, HalfMatchArray, PatchApplyArray } from "../types";
 
 /**
  * Rearrange diff boundaries that split Unicode surrogate pairs.
  *
+ * A diff ending in a high surrogate carries it to the next diff of the
+ * same text: a delete's to the next delete or equality (text1), an
+ * insert's to the next insert or equality (text2), an equality's to both.
+ * An equality takes a carry only if both texts carry the same one; if they
+ * differ (for example DELETE "\ud83d", INSERT "\ud83e", EQUAL "\ude00"),
+ * the equality's leading low surrogate is shared, so each text's carry and
+ * that low surrogate end the run's delete and insert instead. So both texts
+ * are always exactly what the diffs say, and no edit is lost (the old
+ * single carry dropped one of two different high surrogates, so the
+ * patch lost the edit). Empty diffs are removed. Returns a new array; the
+ * input is not changed.
+ *
  * @param {!Array.<!diff_match_patch.Diff>} diffs Array of diff tuples.
  */
-// mutates diff in place.
 export function cleanupSplitSurrogates(diffs: Diff[]): Diff[] {
-  var lastEnd;
-  for (var x = 0; x < diffs.length; x++) {
-    var thisDiff = diffs[x];
-    var thisTop = thisDiff[1][0];
-    var thisEnd = thisDiff[1][thisDiff[1].length - 1];
+  const out: Diff[] = [];
+  // What text1 and text2 carry to their next diff.
+  let carry1 = "";
+  let carry2 = "";
+  // Where the edits since the last equality are in out (-1: none).
+  let lastDelete = -1;
+  let lastInsert = -1;
 
-    if (0 === thisDiff[1].length) {
-      diffs.splice(x--, 1);
-      continue;
+  // Add text to the end of the run's last delete (op -1) or insert (op 1),
+  // or as a new one.
+  const toRun = (op: DiffOperation, text: string) => {
+    const at = op === DiffOperation.DIFF_DELETE ? lastDelete : lastInsert;
+    if (at >= 0) {
+      out[at][1] += text;
+    } else {
+      out.push([op, text]);
+      if (op === DiffOperation.DIFF_DELETE) lastDelete = out.length - 1;
+      else lastInsert = out.length - 1;
     }
+  };
 
-    if (thisEnd && isHighSurrogate(thisEnd)) {
-      lastEnd = thisEnd;
-      thisDiff[1] = thisDiff[1].slice(0, -1);
-    }
-
-    if (
-      lastEnd &&
-      thisTop &&
-      isHighSurrogate(lastEnd) &&
-      isLowSurrogate(thisTop)
-    ) {
-      thisDiff[1] = lastEnd + thisDiff[1];
-    }
-
-    if (0 === thisDiff[1].length) {
-      diffs.splice(x--, 1);
-      continue;
+  for (const [op, data] of diffs) {
+    if (op === DiffOperation.DIFF_EQUAL) {
+      let text = data;
+      if (carry1 !== carry2) {
+        // The texts carry different high surrogates (or only one does):
+        // they end the run, each with the shared low surrogate after it.
+        const low = text && isLowSurrogate(text[0]) ? text[0] : "";
+        if (carry1 || low) toRun(DiffOperation.DIFF_DELETE, carry1 + low);
+        if (carry2 || low) toRun(DiffOperation.DIFF_INSERT, carry2 + low);
+        text = text.slice(low.length);
+      } else {
+        text = carry1 + text;
+      }
+      carry1 = carry2 = "";
+      if (text && isHighSurrogate(text[text.length - 1])) {
+        carry1 = carry2 = text[text.length - 1];
+        text = text.slice(0, -1);
+      }
+      if (text) {
+        out.push([op, text]);
+        lastDelete = lastInsert = -1;
+      }
+    } else {
+      const deleting = op === DiffOperation.DIFF_DELETE;
+      let text = (deleting ? carry1 : carry2) + data;
+      let carry = "";
+      if (text && isHighSurrogate(text[text.length - 1])) {
+        carry = text[text.length - 1];
+        text = text.slice(0, -1);
+      }
+      if (deleting) carry1 = carry;
+      else carry2 = carry;
+      // An edit is kept as it is (never merged with another).
+      if (text) {
+        out.push([op, text]);
+        if (deleting) lastDelete = out.length - 1;
+        else lastInsert = out.length - 1;
+      }
     }
   }
-
-  return diffs;
+  // What is still carried ends its text (a lone high surrogate at the end).
+  if (carry1 === carry2) {
+    if (carry1) out.push([DiffOperation.DIFF_EQUAL, carry1]);
+  } else {
+    if (carry1) toRun(DiffOperation.DIFF_DELETE, carry1);
+    if (carry2) toRun(DiffOperation.DIFF_INSERT, carry2);
+  }
+  return out;
 }
 
 function isHighSurrogate(c: string): boolean {

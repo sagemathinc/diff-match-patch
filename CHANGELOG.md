@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fixed: `patch_make` (and `diff_toDelta`, `diff_prettyHtml`) no longer lose an edit when two texts differ only in the high surrogate before a shared low surrogate (for example "\ud83d\ude00" to "\ud83e\ude00"). The surrogate cleanup carried one high surrogate for both texts, so it dropped one of two different ones: the patch was empty and applying it left the old text, in every mode (time, unlimited or any work budget). It now carries one per text, moves a shared low surrogate into both edits when they differ, and returns a new array instead of changing its input. Diffs that split no pair are unchanged.
 - Fixed: under a work budget, `diff_main` always checks equality and strips the common prefix and suffix, charging that step after it runs instead of paying ahead. A small edit to a long text (for example one line of 800 KB under a 25M limit) is no longer the whole text deleted and inserted; if the strip spends the budget, the diff is the prefix and suffix kept and the trivial diff of the middle. With enough budget, output is unchanged; the work done is still at most the limit plus one step.
 
 ## @cocalc/diff-match-patch 1.1.0

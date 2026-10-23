@@ -211,3 +211,89 @@ describe("tests of surrogate pairs (unicode)", () => {
     });
   });
 });
+
+describe("no edit is lost at a shared surrogate half (astra CORR-DMP-STRIP-1)", () => {
+  const dmp = new DiffMatchPatch();
+  // Make the patch, apply it to a: b, whatever the budget.
+  function roundtrip(a: string, b: string, opts: object, viaText = true) {
+    const d = new DiffMatchPatch(opts);
+    const patches = d.patch_make(a, b);
+    expect(d.patch_apply(patches, a)[0]).toBe(b);
+    if (viaText) {
+      const text = d.patch_toText(patches);
+      expect(d.patch_apply(d.patch_fromText(text), a)[0]).toBe(b);
+    }
+    expect(
+      d.diff_text2(d.diff_fromDelta(a, d.diff_toDelta(d.diff_main(a, b)))),
+    ).toBe(b);
+  }
+  const modes = [
+    {},
+    { diffTimeout: 0 },
+    { diffWorkLimit: 1 },
+    { diffWorkLimit: 25_000_000 },
+  ];
+
+  it("different high surrogates before a shared low surrogate (the old cleanup dropped the edit, in every mode)", () => {
+    for (const opts of modes) {
+      roundtrip("😀", "🨀", opts);
+      roundtrip("🨀", "😀", opts);
+      roundtrip("x😀y", "x🨀y", opts);
+      roundtrip("😀😁", "🨀🨁", opts);
+    }
+  });
+
+  it("the mirror: a shared high surrogate before different low surrogates", () => {
+    for (const opts of modes) {
+      roundtrip("😀", "😁", opts);
+      roundtrip("x😀y", "x😁y", opts);
+    }
+  });
+
+  it("inserts and deletes of a whole pair next to a pair sharing a half", () => {
+    for (const opts of modes) {
+      roundtrip("a😀b", "a🨀😀b", opts);
+      roundtrip("a🨀😀b", "a😀b", opts);
+      roundtrip("😀", "🨀😀", opts);
+      roundtrip("😀", "😀😁", opts);
+    }
+  });
+
+  it("the 25M case: 400,000 p, an emoji changed in its high surrogate, 400,000 s", () => {
+    const a = "p".repeat(400_000) + "😀" + "s".repeat(400_000);
+    const b = "p".repeat(400_000) + "🨀" + "s".repeat(400_000);
+    roundtrip(a, b, { diffWorkLimit: 25_000_000 });
+    const d = new DiffMatchPatch({ diffWorkLimit: 25_000_000 });
+    expect(d.patch_toText(d.patch_make(a, b)).length).toBeLessThan(200);
+  });
+
+  it("random edits of texts of emoji sharing halves: patch_make then patch_apply is b, and the delta is exact", () => {
+    let seed = 5;
+    const random = () =>
+      (seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) / 2 ** 32;
+    const units = ["😀", "🨀", "😁", "🨁", "a", "b"];
+    const text = (n: number) =>
+      Array.from({ length: n }, () => units[Math.floor(random() * units.length)]).join("");
+    for (const opts of modes) {
+      for (let i = 0; i < 1000; i++) {
+        const a = text(Math.floor(random() * 12));
+        const b = text(Math.floor(random() * 12));
+        // patch_toText can still throw where patch_addContext's context
+        // splits a pair (as before this change); the patches themselves
+        // are exact.
+        roundtrip(a, b, opts, false);
+      }
+    }
+  });
+
+  it("cleanupSplitSurrogates leaves its input unchanged", () => {
+    const diffs: [number, string][] = [
+      [DIFF_DELETE, "\ud83d"],
+      [DIFF_INSERT, "\ud83e"],
+      [DIFF_EQUAL, "\ude00"],
+    ];
+    const before = JSON.stringify(diffs);
+    expect(dmp.diff_toDelta(diffs as any)).toBe("-2\t+%F0%9F%A8%80");
+    expect(JSON.stringify(diffs)).toBe(before);
+  });
+});
