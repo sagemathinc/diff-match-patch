@@ -253,11 +253,16 @@ export class DiffMatchPatch {
       throw new Error("Null input. (diff_main)");
     }
 
-    // A work budget pays ahead for the equality check, the common prefix
-    // and suffix (their searches and copies) and putting them back.
-    if (!this.afford(deadline, 16 * (text1.length + text2.length) + 16)) {
+    // A work budget already spent: the trivial diff.
+    if (this.spent(deadline)) {
       return this.trivialDiff(text1, text2);
     }
+    // Otherwise the equality check, the common prefix and suffix (their
+    // searches and copies) and putting them back always run, and are
+    // charged as one step: linear in the texts, so a small edit to a long
+    // text is never the whole text deleted and inserted because the budget
+    // couldn't pay ahead for this step.
+    this.charge(deadline, 16 * (text1.length + text2.length) + 16);
 
     // Check for equality (speedup).
     if (text1 === text2) {
@@ -284,13 +289,11 @@ export class DiffMatchPatch {
     text1 = text1.substring(0, text1.length - commonlength);
     text2 = text2.substring(0, text2.length - commonlength);
 
-    // Compute the diff on the middle block.
-    const diffs: Diff[] = this.diff_compute_(
-      text1,
-      text2,
-      checklines,
-      deadline,
-    );
+    // Compute the diff on the middle block: the trivial one if that step
+    // spent the budget.
+    const diffs: Diff[] = this.spent(deadline)
+      ? this.trivialDiff(text1, text2)
+      : this.diff_compute_(text1, text2, checklines, deadline);
 
     // Restore the prefix and suffix.
     if (commonprefix) {

@@ -1,5 +1,9 @@
 # Changelogs
 
+## Unreleased
+
+- Fixed: under a work budget, `diff_main` always checks equality and strips the common prefix and suffix, charging that step after it runs instead of paying ahead. A small edit to a long text (for example one line of 800 KB under a 25M limit) is no longer the whole text deleted and inserted; if the strip spends the budget, the diff is the prefix and suffix kept and the trivial diff of the middle. With enough budget, output is unchanged; the work done is still at most the limit plus one step.
+
 ## @cocalc/diff-match-patch 1.1.0
 
 - Added: `diffWorkLimit`, a deterministic work budget for diffs in place of the wall-clock `diffTimeout`, so the same texts always give the same diff and patch (#1). With no limit set, output is byte-identical to 1.0.1.
